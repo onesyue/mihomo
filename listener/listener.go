@@ -725,5 +725,26 @@ func closeTunListener() {
 }
 
 func Cleanup() {
+	// YueLink: tear down ALL listeners on shutdown so embedded c-archive
+	// callers can rebind ports on the next StartCore. Upstream mihomo only
+	// closes the TUN listener here because its main() is about to os.Exit;
+	// in-process c-archive callers (Flutter app via CGO) keep the Go runtime
+	// alive across StartCore/StopCore cycles, so leaked mixed/http/socks/dns
+	// listeners block the next StartCore — and in service-mode-on-the-side,
+	// they hand stale routing to any client that still connects to the old
+	// port. Calling each ReCreate with a zero/empty config is the
+	// upstream-supported way to close that listener type without recreating.
+	ReCreateHTTP(0, nil)
+	ReCreateSocks(0, nil)
+	ReCreateRedir(0, nil)
+	ReCreateTProxy(0, nil)
+	ReCreateMixed(0, nil)
+	ReCreateShadowSocks("", nil)
+	ReCreateVmess("", nil)
+	ReCreateTuic(LC.TuicServer{}, nil)
+	PatchTunnel(nil, nil)
+	PatchInboundListeners(nil, nil, true)
 	closeTunListener()
+	LastTunConf = LC.Tun{}
+	LastTuicConf = LC.TuicServer{}
 }
