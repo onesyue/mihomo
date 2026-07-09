@@ -534,7 +534,7 @@ func Shutdown() {
 	// Upstream relies on os.Exit to release :53/:1053; c-archive callers
 	// don't get that and the bound socket survives into the next StartCore,
 	// failing with EADDRINUSE on the second cycle.
-	dns.ReCreateServer("", nil)
+	dns.ReCreateServer("", nil, nil)
 	tproxy.CleanupTProxyIPTables()
 	resolver.StoreFakePoolState()
 
