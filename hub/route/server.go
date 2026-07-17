@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +35,15 @@ import (
 var (
 	uiPath = ""
 
+	// serverMu guards the four package-level server variables below.
+	// start/startTLS/startUnix/startPipe run as goroutines from
+	// ReCreateServer and used to mutate these with no synchronization —
+	// a fast Shutdown→ReCreateServer sequence could interleave so that a
+	// stale goroutine closed the freshly created server. The lock covers
+	// listener setup + variable swap only; Serve itself runs unlocked
+	// (it blocks until the server is closed, so holding the lock across
+	// it would deadlock Shutdown).
+	serverMu   sync.Mutex
 	httpServer *http.Server
 	tlsServer  *http.Server
 	unixServer *http.Server
@@ -99,6 +109,33 @@ func ReCreateServer(cfg *Config) {
 	}
 }
 
+// Shutdown synchronously closes every external-controller server (HTTP,
+// TLS, unix, named pipe) and nils the package variables, all under
+// serverMu. Unlike ReCreateServer(&Config{}) — whose async goroutines may
+// be scheduled AFTER a subsequent real ReCreateServer and close the fresh
+// servers — this returns only once all listeners are released, so an
+// embedding host can StopCore→StartCore back to back safely.
+func Shutdown() {
+	serverMu.Lock()
+	defer serverMu.Unlock()
+	if httpServer != nil {
+		_ = httpServer.Close()
+		httpServer = nil
+	}
+	if tlsServer != nil {
+		_ = tlsServer.Close()
+		tlsServer = nil
+	}
+	if unixServer != nil {
+		_ = unixServer.Close()
+		unixServer = nil
+	}
+	if pipeServer != nil {
+		_ = pipeServer.Close()
+		pipeServer = nil
+	}
+}
+
 func SetUIPath(path string) {
 	uiPath = C.Path.Resolve(path)
 }
@@ -161,20 +198,26 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 }
 
 func start(cfg *Config) {
-	// first stop existing server
-	if httpServer != nil {
-		_ = httpServer.Close()
-		httpServer = nil
-	}
+	server, l := func() (*http.Server, net.Listener) {
+		serverMu.Lock()
+		defer serverMu.Unlock()
 
-	// handle addr
-	if len(cfg.Addr) > 0 {
+		// first stop existing server
+		if httpServer != nil {
+			_ = httpServer.Close()
+			httpServer = nil
+		}
+
+		// handle addr
+		if len(cfg.Addr) == 0 {
+			return nil, nil
+		}
 		lc := inbound.NewListenConfig()
 		lc.SetRouteMark(cfg.RoutingMark)
 		l, err := lc.Listen(context.Background(), "tcp", cfg.Addr)
 		if err != nil {
 			log.Errorln("External controller listen error: %s", err)
-			return
+			return nil, nil
 		}
 		log.Infoln("RESTful API listening at: %s", l.Addr().String())
 
@@ -182,25 +225,35 @@ func start(cfg *Config) {
 			Handler: router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors),
 		}
 		httpServer = server
-		if err = server.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Errorln("External controller serve error: %s", err)
-		}
+		return server, l
+	}()
+	if server == nil {
+		return
+	}
+	if err := server.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Errorln("External controller serve error: %s", err)
 	}
 }
 
 func startTLS(cfg *Config) {
-	// first stop existing server
-	if tlsServer != nil {
-		_ = tlsServer.Close()
-		tlsServer = nil
-	}
+	server, l := func() (*http.Server, net.Listener) {
+		serverMu.Lock()
+		defer serverMu.Unlock()
 
-	// handle tlsAddr
-	if len(cfg.TLSAddr) > 0 {
+		// first stop existing server
+		if tlsServer != nil {
+			_ = tlsServer.Close()
+			tlsServer = nil
+		}
+
+		// handle tlsAddr
+		if len(cfg.TLSAddr) == 0 {
+			return nil, nil
+		}
 		certLoader, err := ca.NewTLSKeyPairLoader(cfg.Certificate, cfg.PrivateKey)
 		if err != nil {
 			log.Errorln("External controller tls listen error: %s", err)
-			return
+			return nil, nil
 		}
 
 		lc := inbound.NewListenConfig()
@@ -208,7 +261,7 @@ func startTLS(cfg *Config) {
 		l, err := lc.Listen(context.Background(), "tcp", cfg.TLSAddr)
 		if err != nil {
 			log.Errorln("External controller tls listen error: %s", err)
-			return
+			return nil, nil
 		}
 
 		log.Infoln("RESTful API tls listening at: %s", l.Addr().String())
@@ -227,7 +280,8 @@ func startTLS(cfg *Config) {
 			pool, err := ca.LoadCertificates(cfg.ClientAuthCert)
 			if err != nil {
 				log.Errorln("External controller tls listen error: %s", err)
-				return
+				_ = l.Close()
+				return nil, nil
 			}
 			tlsConfig.ClientCAs = pool
 		}
@@ -236,35 +290,46 @@ func startTLS(cfg *Config) {
 			err = ech.LoadECHKey(cfg.EchKey, tlsConfig)
 			if err != nil {
 				log.Errorln("External controller tls serve error: %s", err)
-				return
+				_ = l.Close()
+				return nil, nil
 			}
 		}
 		server := &http.Server{
 			Handler: router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors),
 		}
 		tlsServer = server
-		if err = server.Serve(tls.NewListener(l, tlsConfig)); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Errorln("External controller tls serve error: %s", err)
-		}
+		return server, tls.NewListener(l, tlsConfig)
+	}()
+	if server == nil {
+		return
+	}
+	if err := server.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Errorln("External controller tls serve error: %s", err)
 	}
 }
 
 func startUnix(cfg *Config) {
-	// first stop existing server
-	if unixServer != nil {
-		_ = unixServer.Close()
-		unixServer = nil
-	}
+	server, l := func() (*http.Server, net.Listener) {
+		serverMu.Lock()
+		defer serverMu.Unlock()
 
-	// handle addr
-	if len(cfg.UnixAddr) > 0 {
+		// first stop existing server
+		if unixServer != nil {
+			_ = unixServer.Close()
+			unixServer = nil
+		}
+
+		// handle addr
+		if len(cfg.UnixAddr) == 0 {
+			return nil, nil
+		}
 		addr := C.Path.Resolve(cfg.UnixAddr)
 
 		dir := filepath.Dir(addr)
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				log.Errorln("External controller unix listen error: %s", err)
-				return
+				return nil, nil
 			}
 		}
 
@@ -282,7 +347,7 @@ func startUnix(cfg *Config) {
 		l, err := lc.Listen(context.Background(), "unix", addr)
 		if err != nil {
 			log.Errorln("External controller unix listen error: %s", err)
-			return
+			return nil, nil
 		}
 		_ = os.Chmod(addr, 0o666)
 		log.Infoln("RESTful API unix listening at: %s", l.Addr().String())
@@ -291,30 +356,40 @@ func startUnix(cfg *Config) {
 			Handler: router(cfg.IsDebug, "", cfg.DohServer, cfg.Cors),
 		}
 		unixServer = server
-		if err = server.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Errorln("External controller unix serve error: %s", err)
-		}
+		return server, l
+	}()
+	if server == nil {
+		return
+	}
+	if err := server.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Errorln("External controller unix serve error: %s", err)
 	}
 }
 
 func startPipe(cfg *Config) {
-	// first stop existing server
-	if pipeServer != nil {
-		_ = pipeServer.Close()
-		pipeServer = nil
-	}
+	server, l := func() (*http.Server, net.Listener) {
+		serverMu.Lock()
+		defer serverMu.Unlock()
 
-	// handle addr
-	if len(cfg.PipeAddr) > 0 {
+		// first stop existing server
+		if pipeServer != nil {
+			_ = pipeServer.Close()
+			pipeServer = nil
+		}
+
+		// handle addr
+		if len(cfg.PipeAddr) == 0 {
+			return nil, nil
+		}
 		if !strings.HasPrefix(cfg.PipeAddr, "\\\\.\\pipe\\") { // windows namedpipe must start with "\\.\pipe\"
 			log.Errorln("External controller pipe listen error: windows namedpipe must start with \"\\\\.\\pipe\\\"")
-			return
+			return nil, nil
 		}
 
 		l, err := inbound.ListenNamedPipe(cfg.PipeAddr)
 		if err != nil {
 			log.Errorln("External controller pipe listen error: %s", err)
-			return
+			return nil, nil
 		}
 		log.Infoln("RESTful API pipe listening at: %s", l.Addr().String())
 
@@ -322,9 +397,13 @@ func startPipe(cfg *Config) {
 			Handler: router(cfg.IsDebug, "", cfg.DohServer, cfg.Cors),
 		}
 		pipeServer = server
-		if err = server.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Errorln("External controller pipe serve error: %s", err)
-		}
+		return server, l
+	}()
+	if server == nil {
+		return
+	}
+	if err := server.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Errorln("External controller pipe serve error: %s", err)
 	}
 }
 
