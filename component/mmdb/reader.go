@@ -96,9 +96,24 @@ func (r ASNReader) LookupASN(ip net.IP) (string, string) {
 	case "ipinfo generic_asn_free.mmdb":
 		var result IPInfo
 		_ = r.Lookup(ip, &result)
-		return result.ASN[2:], result.Name
+		// Fork guard (same class as 01acf232): a lookup miss leaves result
+		// zero-valued, and slicing the empty ASN ("AS12345" → "12345") panics
+		// with index out of range. Under c-archive embedding nothing recovers,
+		// so the first IP absent from an ipinfo ASN database would take down
+		// the host app. Degrade to "no match" instead.
+		return stripIpinfoASNPrefix(result.ASN), result.Name
 	default:
 		log.Warnln("Unsupported ASN type: %s", r.Metadata.DatabaseType)
 	}
 	return "", ""
+}
+
+// stripIpinfoASNPrefix turns ipinfo's "AS12345" into "12345". Anything too
+// short to carry the "AS" prefix — above all the empty string a lookup miss
+// produces — yields "" instead of an out-of-range slice.
+func stripIpinfoASNPrefix(asn string) string {
+	if len(asn) < 2 {
+		return ""
+	}
+	return asn[2:]
 }
