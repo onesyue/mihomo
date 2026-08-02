@@ -3,6 +3,7 @@ package route
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -51,10 +52,44 @@ func waitListening(t *testing.T, addr string) {
 	t.Fatalf("外部控制器在 5s 内没有在 %s 上监听起来", addr)
 }
 
-// mustRebind 断言 addr 此刻可以被重新 bind。
-// 这就是「端口真的释放了」的机器判据——也是 `address already in use` 的反面。
+// mustRebind 断言 addr 此刻确实不再被本进程的 listener 占着。
+//
+// 判据分两种，因为「能不能重新 bind」在 Windows 上根本不成立：
+//
+//   - **非 Windows**：直接重新 `net.Listen`。这是最强的判据，也是
+//     `address already in use` 的正面反义。
+//   - **Windows**：改判「此刻拨号必须失败」。
+//
+// 为什么 Windows 不能用 rebind（2026-08-02 实测定案）：`waitListening` 会先拨
+// 一次探测连接，它关闭后在本地端口留下 TIME_WAIT。Linux/macOS 的 Go 给
+// listener 默认设 SO_REUSEADDR，所以 TIME_WAIT 之上照样 bind 得回来；
+// **Windows 的 Go 刻意不设**（在那里 SO_REUSEADDR 允许套接字劫持）。于是同一段
+// 代码在 Windows 上会间歇性地报
+// "Only one usage of each socket address ... is normally permitted" ——
+// 报的是 TIME_WAIT，**不是没关掉的 listener**。
+//
+// 这不是推测：2026-08-02 第一次让这套测试在 Windows runner 上跑起来
+// （在此之前 workflow 只在 `Alpha` 分支触发，本分叉的 `main` 从未跑过），
+// 7 个 Go 版本里 5 个红、2 个绿，ubuntu / macos 全绿，红的全是这一条
+// `TestShutdownReleasesPortSynchronously`。
+//
+// 换判据**没有放宽这条守卫**：listener 还开着就一定连得上，所以「立刻拨号必须
+// 失败」同样能抓住「Shutdown 没关 listener」和「Shutdown 是异步的」这两种回归；
+// 而 TIME_WAIT 状态的端口不接受新连接，不会造成假阳性。两条路径都**不重试**
+// ——「Shutdown 返回即已释放」这条同步契约靠的就是不给它任何宽限时间。
 func mustRebind(t *testing.T, addr, when string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			t.Fatalf("%s：%s 仍然可连，listener 没被 Shutdown 关掉\n"+
+				"这正是 fork 的 Shutdown()/listener 关停要消灭的形态"+
+				"（桌面端切模式 = StopCore→StartCore，漏释放一个 listener 下次启动就起不来）。",
+				when, addr)
+		}
+		return
+	}
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		t.Fatalf("%s：端口 %s 仍被占用，无法重新 bind: %v\n"+
