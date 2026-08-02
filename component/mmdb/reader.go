@@ -35,6 +35,15 @@ type IPInfo struct {
 }
 
 func (r IPReader) LookupCode(ipAddress net.IP) []string {
+	// Fork guard: 3dbff728 downgraded MMDB load failure from Fatalln to
+	// Errorln+return, which leaves the sync.Once-consumed instance at its zero
+	// value — databaseType zero == typeMaxmind, and the embedded *Reader is
+	// nil. Without this check the first GEOIP rule evaluated on such a process
+	// dereferences the nil reader and panics the whole embedding app
+	// (c-archive: no recover() anywhere in tunnel/ or listener/).
+	if r.Reader == nil {
+		return []string{}
+	}
 	switch r.databaseType {
 	case typeMaxmind:
 		var country geoip2Country
@@ -73,6 +82,12 @@ func (r IPReader) LookupCode(ipAddress net.IP) []string {
 }
 
 func (r ASNReader) LookupASN(ip net.IP) (string, string) {
+	// Fork guard: same zero-value hazard as IPReader.LookupCode — a failed
+	// ASN database load leaves this reader nil, and r.Metadata below would
+	// dereference it before any switch arm runs.
+	if r.Reader == nil {
+		return "", ""
+	}
 	switch r.Metadata.DatabaseType {
 	case "GeoLite2-ASN", "DBIP-ASN-Lite (compat=GeoLite2-ASN)":
 		var result GeoLite2
