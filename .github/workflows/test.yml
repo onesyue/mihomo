@@ -1,3 +1,8 @@
+# 分叉说明（onesyue/mihomo，2026-08-02）：上游只在 `Alpha` 上跑这套测试，而本
+# 分叉的默认分支是 `main` —— 于是这个 workflow 自建仓起**一次都没运行过**
+# （Actions runs 总数 = 0），包括本分叉自己新增的回归测试（mmdb 零值守卫、
+# listener 生命周期不变量）。分叉带补丁却不跑测试，等于补丁没有回归保护。
+# 下面只多加一行 `main`，其余保持与上游一致，减少后续 rebase 冲突面。
 name: Test
 on:
   push:
@@ -7,11 +12,13 @@ on:
       - ".github/ISSUE_TEMPLATE/**"
     branches:
       - Alpha
+      - main
     tags:
       - "v*"
   pull_request:
     branches:
       - Alpha
+      - main
 
 jobs:
   test:
