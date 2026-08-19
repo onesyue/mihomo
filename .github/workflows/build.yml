@@ -25,6 +25,8 @@ env:
   REGISTRY: docker.io
 jobs:
   build:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -157,25 +159,25 @@ jobs:
           - { goos: linux, goarch: amd64, goamd64: v3, output: amd64-v3-go120, goversion: '1.20' }
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: Set up Go
       if: ${{ matrix.jobs.goversion == '' }}
-      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
       with:
         go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
         go-version: '1.26'
 
     - name: Set up Go
       if: ${{ matrix.jobs.goversion != '' && matrix.jobs.goversion != 'custom' }}
-      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
       with:
         go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
         go-version: ${{ matrix.jobs.goversion }}
 
     - name: Set up Go1.26 loongarch abi1
       if: ${{ matrix.jobs.goarch == 'loong64' && matrix.jobs.abi == '1' }}
-      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
       with:
         go-download-base-url: 'https://github.com/MetaCubeX/loongarch64-golang/releases/download/1.26.0'
         go-version: 1.26.0
@@ -205,7 +207,7 @@ jobs:
 
     - name: Setup NDK
       if: ${{ matrix.jobs.goos == 'android' }}
-      uses: nttld/setup-ndk@v1
+      uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
       id: setup-ndk
       with:
         ndk-version: r29-beta1
@@ -313,7 +315,7 @@ jobs:
       shell: bash
 
     - name: Archive production artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: "${{ matrix.jobs.goos }}-${{ matrix.jobs.output }}"
         path: |
@@ -328,13 +330,14 @@ jobs:
           checksums.txt
 
   Upload-Prerelease:
-    permissions: write-all
+    permissions:
+      contents: write
     if: ${{ github.event_name != 'workflow_dispatch' && github.ref_type == 'branch' && !startsWith(github.event_name, 'pull_request') }}
     needs: [build]
     runs-on: ubuntu-latest
     steps:
     - name: Download all workflow run artifacts
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         path: bin/
         merge-multiple: true
@@ -347,7 +350,7 @@ jobs:
       shell: bash
 
     - name: Delete current release assets
-      uses: 8Mi-Tech/delete-release-assets-action@main
+      uses: 8Mi-Tech/delete-release-assets-action@71a740cf4364bc69448e0294b8abadffadfb3288 # main-2026-05-14; no versioned Node 24 tag
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         tag: Prerelease-${{ github.ref_name }}
@@ -358,7 +361,7 @@ jobs:
       shell: bash
 
     - name: Tag Repo
-      uses: richardsimko/update-tag@v1
+      uses: richardsimko/update-tag@aab2434e9a5040687874aa39d1c6377ec0cb0d94 # v1.1.6
       with:
         tag_name: Prerelease-${{ github.ref_name }}
       env:
@@ -375,7 +378,7 @@ jobs:
         EOF
 
     - name: Upload Prerelease
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
       if: ${{  success() }}
       with:
         tag_name: Prerelease-${{ github.ref_name }}
@@ -386,13 +389,14 @@ jobs:
         body_path: release.txt
 
   Upload-Release:
-    permissions: write-all
+    permissions:
+      contents: write
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version != '' }}
     needs: [build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: Meta
           fetch-depth: '0'
@@ -427,7 +431,7 @@ jobs:
             bash ./genReleaseNote.sh -v ${PREVERSION}...${CURRENTVERSION}
             rm ./genReleaseNote.sh
   
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: bin/
           merge-multiple: true
@@ -437,7 +441,7 @@ jobs:
         working-directory: bin
   
       - name: Upload Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         if: ${{ success() }}
         with:
           tag_name: ${{ github.event.inputs.version }}
@@ -446,16 +450,17 @@ jobs:
 
   Docker:
     if: ${{ !startsWith(github.event_name, 'pull_request') }}
-    permissions: write-all
+    permissions:
+      contents: read
     needs: [build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: bin/
           merge-multiple: true
@@ -465,10 +470,10 @@ jobs:
         working-directory: bin
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Setup Docker buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
           version: latest
       
@@ -477,7 +482,7 @@ jobs:
       - name: Extract Docker metadata
         if: ${{ github.event_name != 'workflow_dispatch' }}
         id: meta_alpha
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: '${{ env.REGISTRY }}/${{ github.repository }}'
       
@@ -486,7 +491,7 @@ jobs:
       - name: Extract Docker metadata
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version != '' }}
         id: meta_release
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: '${{ env.REGISTRY }}/${{ github.repository }}'
           tags: |
@@ -501,7 +506,7 @@ jobs:
           ls bin/
       
       - name: login to docker REGISTRY
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.DOCKER_HUB_USER }}
@@ -511,7 +516,7 @@ jobs:
       # https://github.com/docker/build-push-action
       - name: Build and push Docker image
         if: ${{ github.event_name != 'workflow_dispatch' }}
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./Dockerfile
@@ -526,7 +531,7 @@ jobs:
       
       - name: Build and push Docker image
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version != '' }}
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./Dockerfile
