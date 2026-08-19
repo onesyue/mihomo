@@ -23,10 +23,6 @@ import (
 //
 // 与 `server_lifecycle_test.go` 同理：server 变量是包级的，不能 t.Parallel()。
 
-// settleAsyncStart 给 ReCreateServer 派出的 goroutine 一点时间去做它可能做的事。
-// 只用在「断言它什么都没做」的用例里——有事可等的用例一律用 waitListening/waitUnix。
-const settleAsyncStart = 150 * time.Millisecond
-
 // serverStates 在锁下快照四个包级 server 变量是否为 nil。
 // 早退分支（空 Addr、非法 pipe 名）的直接判据。
 func serverStates() (httpNil, tlsNil, unixNil, pipeNil bool) {
@@ -100,7 +96,6 @@ func TestEmptyTLSAddrStartsNothing(t *testing.T) {
 	probe := freeAddr(t)
 
 	ReCreateServer(&Config{TLSAddr: ""})
-	time.Sleep(settleAsyncStart)
 	_, tlsNil, _, _ := serverStates()
 	if !tlsNil {
 		t.Fatal("空 TLSAddr 却建出了 tlsServer")
@@ -159,7 +154,6 @@ func TestStopCoreThenStartCoreReusesSameUnixPath(t *testing.T) {
 // 钉住 startUnix 里 `len(cfg.UnixAddr) == 0` 的提前返回。
 func TestEmptyUnixAddrStartsNothing(t *testing.T) {
 	ReCreateServer(&Config{UnixAddr: ""})
-	time.Sleep(settleAsyncStart)
 	_, _, unixNil, _ := serverStates()
 	if !unixNil {
 		t.Fatal("空 UnixAddr 却建出了 unixServer")
@@ -169,26 +163,24 @@ func TestEmptyUnixAddrStartsNothing(t *testing.T) {
 
 // ── startPipe ───────────────────────────────────────────────────────────────
 
-// startPipe 只在 inbound.SupportNamedPipe（= Windows）时被 ReCreateServer 派出，
-// 所以下面两条**直接调 startPipe**，让非 Windows 也能覆盖它的早退分支。
+// pipe 只在 inbound.SupportNamedPipe（= Windows）时被 ReCreateServer 创建，
+// 所以下面三条**直接调 preparePipeServer**，让非 Windows 也能覆盖准备阶段。
 // 非 Windows 上 inbound.ListenNamedPipe 返回 os.ErrInvalid，正好是「listen 失败」那条。
 
 // 非 `\\.\pipe\` 前缀必须被拒绝，且不得留下 pipeServer。
 func TestStartPipeRejectsNonPipeAddr(t *testing.T) {
-	startPipe(&Config{PipeAddr: "/tmp/not-a-named-pipe"})
-	if _, _, _, pipeNil := serverStates(); !pipeNil {
-		t.Fatal("非法 pipe 名却建出了 pipeServer")
+	if current := preparePipeServer(&Config{PipeAddr: "/tmp/not-a-named-pipe"}, 1); current != nil {
+		_ = current.listener.Close()
+		t.Fatal("非法 pipe 名却准备出了 pipeServer")
 	}
-	Shutdown()
 }
 
 // 钉住 startPipe 里 `len(cfg.PipeAddr) == 0` 的提前返回。
 func TestEmptyPipeAddrStartsNothing(t *testing.T) {
-	startPipe(&Config{PipeAddr: ""})
-	if _, _, _, pipeNil := serverStates(); !pipeNil {
-		t.Fatal("空 PipeAddr 却建出了 pipeServer")
+	if current := preparePipeServer(&Config{PipeAddr: ""}, 1); current != nil {
+		_ = current.listener.Close()
+		t.Fatal("空 PipeAddr 却准备出了 pipeServer")
 	}
-	Shutdown()
 }
 
 // listen 本身失败时（非 Windows 恒失败）不得 panic，也不得留下 pipeServer。
@@ -196,11 +188,10 @@ func TestStartPipeListenFailureLeavesNoServer(t *testing.T) {
 	if inbound.SupportNamedPipe {
 		t.Skip("Windows 上这个地址会真的 bind 成功，改由下面那条覆盖")
 	}
-	startPipe(&Config{PipeAddr: `\\.\pipe\yuelink-test`})
-	if _, _, _, pipeNil := serverStates(); !pipeNil {
-		t.Fatal("pipe listen 失败后却留下了 pipeServer")
+	if current := preparePipeServer(&Config{PipeAddr: `\\.\pipe\yuelink-test`}, 1); current != nil {
+		_ = current.listener.Close()
+		t.Fatal("pipe listen 失败后却准备出了 pipeServer")
 	}
-	Shutdown()
 }
 
 // Windows 上走真实 bind：Shutdown 必须同步关掉 pipe listener。
@@ -234,7 +225,6 @@ func TestShutdownReleasesPipeListener(t *testing.T) {
 	}
 	// 同名管道能再建一次 = 上一个真的释放了。
 	ReCreateServer(&Config{PipeAddr: addr})
-	time.Sleep(settleAsyncStart)
 	if _, _, _, pipeNil := serverStates(); pipeNil {
 		t.Fatalf("同名管道 %s 无法重建，上一轮的 listener 没释放", addr)
 	}
