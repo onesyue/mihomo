@@ -4,9 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 func startContainer(cfg *container.Config, hostCfg *container.HostConfig, name string) (string, error) {
@@ -20,29 +19,36 @@ func startContainer(cfg *container.Config, hostCfg *container.HostConfig, name s
 		hostCfg.NetworkMode = "host"
 	}
 
-	container, err := c.ContainerCreate(context.Background(), cfg, hostCfg, nil, nil, name)
-	if err != nil {
-		return "", err
-	}
-
-	if err = c.ContainerStart(context.Background(), container.ID, types.ContainerStartOptions{}); err != nil {
-		return "", err
-	}
-
-	response, err := c.ContainerAttach(context.Background(), container.ID, types.ContainerAttachOptions{
-		Stdout: true,
-		Stderr: true,
-		Logs:   true,
+	created, err := c.ContainerCreate(context.Background(), client.ContainerCreateOptions{
+		Config:     cfg,
+		HostConfig: hostCfg,
+		Name:       name,
 	})
 	if err != nil {
 		return "", err
 	}
 
+	if _, err = c.ContainerStart(context.Background(), created.ID, client.ContainerStartOptions{}); err != nil {
+		_, _ = c.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true})
+		return "", err
+	}
+
+	response, err := c.ContainerAttach(context.Background(), created.ID, client.ContainerAttachOptions{
+		Stdout: true,
+		Stderr: true,
+		Logs:   true,
+	})
+	if err != nil {
+		_, _ = c.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true})
+		return "", err
+	}
+
 	go func() {
+		defer response.Close()
 		response.Reader.WriteTo(os.Stderr)
 	}()
 
-	return container.ID, nil
+	return created.ID, nil
 }
 
 func cleanContainer(id string) error {
@@ -52,6 +58,7 @@ func cleanContainer(id string) error {
 	}
 	defer c.Close()
 
-	removeOpts := types.ContainerRemoveOptions{Force: true}
-	return c.ContainerRemove(context.Background(), id, removeOpts)
+	removeOpts := client.ContainerRemoveOptions{Force: true}
+	_, err = c.ContainerRemove(context.Background(), id, removeOpts)
+	return err
 }

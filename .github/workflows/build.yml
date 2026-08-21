@@ -93,71 +93,6 @@ jobs:
           - { goos: windows, goarch: amd64, goamd64: v2, output: amd64-v2-go125, goversion: '1.25' }
           - { goos: windows, goarch: amd64, goamd64: v3, output: amd64-v3-go125, goversion: '1.25' }
 
-          # Go 1.24 with special patch can work on Windows 7
-          # https://github.com/MetaCubeX/go/commits/release-branch.go1.24/
-          - { goos: windows, goarch: '386', output: '386-go124', goversion: '1.24' }
-          - { goos: windows, goarch: amd64, goamd64: v1, output: amd64-v1-go124, goversion: '1.24' }
-          - { goos: windows, goarch: amd64, goamd64: v2, output: amd64-v2-go124, goversion: '1.24' }
-          - { goos: windows, goarch: amd64, goamd64: v3, output: amd64-v3-go124, goversion: '1.24' }
-
-          # Go 1.23 with special patch can work on Windows 7
-          # https://github.com/MetaCubeX/go/commits/release-branch.go1.23/
-          - { goos: windows, goarch: '386', output: '386-go123', goversion: '1.23' }
-          - { goos: windows, goarch: amd64, goamd64: v1, output: amd64-v1-go123, goversion: '1.23' }
-          - { goos: windows, goarch: amd64, goamd64: v2, output: amd64-v2-go123, goversion: '1.23' }
-          - { goos: windows, goarch: amd64, goamd64: v3, output: amd64-v3-go123, goversion: '1.23' }
-
-          # Go 1.22 with special patch can work on Windows 7
-          # https://github.com/MetaCubeX/go/commits/release-branch.go1.22/
-          - { goos: windows, goarch: '386', output: '386-go122', goversion: '1.22' }
-          - { goos: windows, goarch: amd64, goamd64: v1, output: amd64-v1-go122, goversion: '1.22' }
-          - { goos: windows, goarch: amd64, goamd64: v2, output: amd64-v2-go122, goversion: '1.22' }
-          - { goos: windows, goarch: amd64, goamd64: v3, output: amd64-v3-go122, goversion: '1.22' }
-
-          # Go 1.21 can revert commit `9e4385` to work on Windows 7
-          # https://github.com/golang/go/issues/64622#issuecomment-1847475161
-          # (OR we can just use golang1.21.4 which unneeded any patch)
-          - { goos: windows, goarch: '386', output: '386-go121', goversion: '1.21' }
-          - { goos: windows, goarch: amd64, goamd64: v1, output: amd64-v1-go121, goversion: '1.21' }
-          - { goos: windows, goarch: amd64, goamd64: v2, output: amd64-v2-go121, goversion: '1.21' }
-          - { goos: windows, goarch: amd64, goamd64: v3, output: amd64-v3-go121, goversion: '1.21' }
-
-          # Go 1.20 is the last release that will run on any release of Windows 7, 8, Server 2008 and Server 2012. Go 1.21 will require at least Windows 10 or Server 2016.
-          - { goos: windows, goarch: '386', output: '386-go120', goversion: '1.20' }
-          - { goos: windows, goarch: amd64, goamd64: v1, output: amd64-v1-go120, goversion: '1.20' }
-          - { goos: windows, goarch: amd64, goamd64: v2, output: amd64-v2-go120, goversion: '1.20' }
-          - { goos: windows, goarch: amd64, goamd64: v3, output: amd64-v3-go120, goversion: '1.20' }
-
-          # Go 1.24 is the last release that will run on macOS 11 Big Sur. Go 1.25 will require macOS 12 Monterey or later.
-          - { goos: darwin, goarch: arm64, output: arm64-go124, goversion: '1.24' }
-          - { goos: darwin, goarch: amd64, goamd64: v1, output: amd64-v1-go124, goversion: '1.24' }
-          - { goos: darwin, goarch: amd64, goamd64: v2, output: amd64-v2-go124, goversion: '1.24' }
-          - { goos: darwin, goarch: amd64, goamd64: v3, output: amd64-v3-go124, goversion: '1.24' }
-
-          # Go 1.22 is the last release that will run on macOS 10.15 Catalina. Go 1.23 will require macOS 11 Big Sur or later.
-          - { goos: darwin, goarch: arm64, output: arm64-go122, goversion: '1.22' }
-          - { goos: darwin, goarch: amd64, goamd64: v1, output: amd64-v1-go122, goversion: '1.22' }
-          - { goos: darwin, goarch: amd64, goamd64: v2, output: amd64-v2-go122, goversion: '1.22' }
-          - { goos: darwin, goarch: amd64, goamd64: v3, output: amd64-v3-go122, goversion: '1.22' }
-
-          # Go 1.20 is the last release that will run on macOS 10.13 High Sierra or 10.14 Mojave. Go 1.21 will require macOS 10.15 Catalina or later.
-          - { goos: darwin, goarch: arm64, output: arm64-go120, goversion: '1.20' }
-          - { goos: darwin, goarch: amd64, goamd64: v1, output: amd64-v1-go120, goversion: '1.20' }
-          - { goos: darwin, goarch: amd64, goamd64: v2, output: amd64-v2-go120, goversion: '1.20' }
-          - { goos: darwin, goarch: amd64, goamd64: v3, output: amd64-v3-go120, goversion: '1.20' }
-
-          # Go 1.23 is the last release that requires Linux kernel version 2.6.32 or later. Go 1.24 will require Linux kernel version 3.2 or later.
-          - { goos: linux, goarch: '386', output: '386-go123', goversion: '1.23' }
-          - { goos: linux, goarch: amd64, goamd64: v1, output: amd64-v1-go123, goversion: '1.23', test: test }
-          - { goos: linux, goarch: amd64, goamd64: v2, output: amd64-v2-go123, goversion: '1.23' }
-          - { goos: linux, goarch: amd64, goamd64: v3, output: amd64-v3-go123, goversion: '1.23' }
-
-          # only for test
-          - { goos: linux, goarch: '386', output: '386-go120', goversion: '1.20' }
-          - { goos: linux, goarch: amd64, goamd64: v1, output: amd64-v1-go120, goversion: '1.20', test: test }
-          - { goos: linux, goarch: amd64, goamd64: v2, output: amd64-v2-go120, goversion: '1.20' }
-          - { goos: linux, goarch: amd64, goamd64: v3, output: amd64-v3-go120, goversion: '1.20' }
-
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
@@ -167,6 +102,7 @@ jobs:
       with:
         go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
         go-version: '1.26'
+        cache: false
 
     - name: Set up Go
       if: ${{ matrix.jobs.goversion != '' && matrix.jobs.goversion != 'custom' }}
@@ -174,6 +110,7 @@ jobs:
       with:
         go-download-base-url: 'https://github.com/MetaCubeX/go/releases/download/build'
         go-version: ${{ matrix.jobs.goversion }}
+        cache: false
 
     - name: Set up Go1.26 loongarch abi1
       if: ${{ matrix.jobs.goarch == 'loong64' && matrix.jobs.abi == '1' }}
@@ -181,6 +118,7 @@ jobs:
       with:
         go-download-base-url: 'https://github.com/MetaCubeX/loongarch64-golang/releases/download/1.26.0'
         go-version: 1.26.0
+        cache: false
 
     - name: Verify Go installation
       run: go version
@@ -189,21 +127,28 @@ jobs:
       run: go env
 
     - name: Set variables
+      env:
+        INPUT_VERSION: ${{ github.event.inputs.version }}
       run: |
         VERSION="${GITHUB_REF_NAME,,}-$(git rev-parse --short HEAD)"
         VERSION="${VERSION//\//-}"
         PackageVersion="$(curl -s "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest" | jq -r '.tag_name' | sed 's/v//g' | awk -F '.' '{$NF = $NF + 1; print}' OFS='.').${VERSION/-/.}"
-        if [ -n "${{ github.event.inputs.version }}" ]; then
-          VERSION=${{ github.event.inputs.version }}
+        if [ -n "$INPUT_VERSION" ]; then
+          if [[ ! "$INPUT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "invalid release version: $INPUT_VERSION" >&2
+            exit 1
+          fi
+          VERSION="$INPUT_VERSION"
           PackageVersion="${VERSION#v}"
         fi
-        echo "VERSION=${VERSION}" >> $GITHUB_ENV
-        echo "PackageVersion=${PackageVersion}" >> $GITHUB_ENV
-      
-        echo "BUILDTIME=$(date)" >> $GITHUB_ENV
-        echo "CGO_ENABLED=0" >> $GITHUB_ENV
-        echo "BUILDTAG=-extldflags --static" >> $GITHUB_ENV
-        echo "GOTOOLCHAIN=local" >> $GITHUB_ENV
+        {
+          echo "VERSION=${VERSION}"
+          echo "PackageVersion=${PackageVersion}"
+          echo "BUILDTIME=$(date)"
+          echo "CGO_ENABLED=0"
+          echo "BUILDTAG=-extldflags --static"
+          echo "GOTOOLCHAIN=local"
+        } >> "$GITHUB_ENV"
 
     - name: Setup NDK
       if: ${{ matrix.jobs.goos == 'android' }}
@@ -214,10 +159,15 @@ jobs:
 
     - name: Set NDK path
       if: ${{ matrix.jobs.goos == 'android' }}
+      env:
+        NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
+        NDK_TARGET: ${{ matrix.jobs.ndk }}
       run: |
-        echo "CC=${{steps.setup-ndk.outputs.ndk-path}}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{matrix.jobs.ndk}}-clang" >> $GITHUB_ENV
-        echo "CGO_ENABLED=1" >> $GITHUB_ENV
-        echo "BUILDTAG=" >> $GITHUB_ENV
+        {
+          echo "CC=${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/${NDK_TARGET}-clang"
+          echo "CGO_ENABLED=1"
+          echo "BUILDTAG="
+        } >> "$GITHUB_ENV"
 
     - name: Test
       if: ${{ matrix.jobs.test == 'test' }}
@@ -246,12 +196,12 @@ jobs:
         go env
         go build -v -tags "with_gvisor" -trimpath -ldflags "${BUILDTAG} -X 'github.com/metacubex/mihomo/constant.Version=${VERSION}' -X 'github.com/metacubex/mihomo/constant.BuildTime=${BUILDTIME}' -w -s -buildid="
         if [ "${{matrix.jobs.goos}}" = "windows" ]; then
-          cp mihomo.exe mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}.exe
-          zip -r mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}-${VERSION}.zip mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}.exe
+          cp mihomo.exe "mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}.exe"
+          zip -r "mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}-${VERSION}.zip" "mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}.exe"
         else
-          cp mihomo mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}
-          gzip -c mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}} > mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}-${VERSION}.gz
-          rm mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}
+          cp mihomo "mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}"
+          gzip -c "mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}" > "mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}-${VERSION}.gz"
+          rm "mihomo-${{matrix.jobs.goos}}-${{matrix.jobs.output}}"
         fi
 
     - name: Package DEB
@@ -297,21 +247,21 @@ jobs:
     - name: Pack Golang Toolchain
       if: ${{ matrix.jobs.goversion == '' && matrix.jobs.tarball == 'tarball' }}
       run: |
-        mkdir -p $GITHUB_WORKSPACE/toolchain/go
-        cp -r $(go env GOROOT)/* $GITHUB_WORKSPACE/toolchain/go/
-        cd $GITHUB_WORKSPACE/toolchain/
-        tar -czf $GITHUB_WORKSPACE/toolchain.tar.gz .
-        rm -rf $GITHUB_WORKSPACE/toolchain
+        mkdir -p "$GITHUB_WORKSPACE/toolchain/go"
+        cp -r "$(go env GOROOT)/." "$GITHUB_WORKSPACE/toolchain/go/"
+        cd "$GITHUB_WORKSPACE/toolchain/"
+        tar -czf "$GITHUB_WORKSPACE/toolchain.tar.gz" .
+        rm -rf "$GITHUB_WORKSPACE/toolchain"
 
     - name: Pack GoMod Vendor
       if: ${{ matrix.jobs.goversion == '' && matrix.jobs.tarball == 'tarball' }}
       run: |
         go mod vendor
-        tar -czf $GITHUB_WORKSPACE/vendor.tar.gz vendor
+        tar -czf "$GITHUB_WORKSPACE/vendor.tar.gz" vendor
 
     - name: Save version
       run: |
-        echo ${VERSION} > version.txt
+        printf '%s\n' "$VERSION" > version.txt
       shell: bash
 
     - name: Archive production artifacts
@@ -357,7 +307,7 @@ jobs:
         deleteOnlyFromDrafts: false
     - name: Set Env
       run: |
-        echo "BUILDTIME=$(TZ=Asia/Shanghai date)" >> $GITHUB_ENV
+        echo "BUILDTIME=$(TZ=Asia/Shanghai date)" >> "$GITHUB_ENV"
       shell: bash
 
     - name: Tag Repo
@@ -367,10 +317,12 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-    - run: |
-        cat > release.txt << 'EOF'
-        Release created at  ${{ env.BUILDTIME }}
-        Synchronize ${{ github.ref_name }} branch code updates, keeping only the latest version
+    - env:
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        cat > release.txt << EOF
+        Release created at  ${BUILDTIME}
+        Synchronize ${REF_NAME} branch code updates, keeping only the latest version
         <br>
         [我应该下载哪个文件? / Which file should I download?](https://github.com/MetaCubeX/mihomo/wiki/FAQ)
         [二进制文件筛选 / Binary file selector](https://metacubex.github.io/Meta-Docs/startup/#_1)
@@ -403,10 +355,16 @@ jobs:
           fetch-tags: 'true'
 
       - name: Get tags
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          echo "CURRENTVERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+          if [[ ! "$INPUT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "invalid release version: $INPUT_VERSION" >&2
+            exit 1
+          fi
+          echo "CURRENTVERSION=$INPUT_VERSION" >> "$GITHUB_ENV"
           git fetch --tags
-          echo "PREVERSION=$(git describe --tags --abbrev=0 HEAD)" >> $GITHUB_ENV
+          echo "PREVERSION=$(git describe --tags --abbrev=0 HEAD)" >> "$GITHUB_ENV"
 
       - name: Force push Alpha branch to Meta
         run: |
@@ -419,16 +377,16 @@ jobs:
 
       - name: Tag the commit on Alpha
         run: |
-          git checkout Alpha 
-          git tag ${{ github.event.inputs.version }}
-          git push origin ${{ github.event.inputs.version }}
+          git checkout Alpha
+          git tag -- "$CURRENTVERSION"
+          git push origin "refs/tags/$CURRENTVERSION"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate release notes
         run: |
             cp ./.github/genReleaseNote.sh ./
-            bash ./genReleaseNote.sh -v ${PREVERSION}...${CURRENTVERSION}
+            bash ./genReleaseNote.sh -v "${PREVERSION}...${CURRENTVERSION}"
             rm ./genReleaseNote.sh
   
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -476,6 +434,7 @@ jobs:
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
           version: latest
+          cache-binary: false
       
       # Extract metadata (tags, labels) for Docker
       # https://github.com/docker/metadata-action

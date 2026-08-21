@@ -1181,22 +1181,6 @@ proxies: # socks5
     #   v2ray-http-upgrade: false
     #   v2ray-http-upgrade-fast-open: false
 
-  - name: "trojan-xtls"
-    type: trojan
-    server: server
-    port: 443
-    password: yourpsk
-    flow: "xtls-rprx-direct" # xtls-rprx-origin xtls-rprx-direct
-    flow-show: true
-    # udp: true
-    # sni: example.com # aka server name
-    # skip-cert-verify: true
-    # name-cert-verify: example.com # 仅修改证书 DNSName 校验目标，不修改 SNI
-    # fingerprint: xxxx # 配置指纹将实现 SSL Pining 效果, 可使用 openssl x509 -noout -fingerprint -sha256 -inform pem -in yourcert.pem 获取
-    # 下面两项如果填写则开启 mTLS（需要同时填写）
-    # certificate: ./client.crt # 证书 PEM 格式，或者 证书的路径
-    # private-key: ./client.key # 证书对应的私钥 PEM 格式，或者私钥路径
-
   #hysteria
   - name: "hysteria"
     type: hysteria

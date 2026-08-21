@@ -16,13 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 	"github.com/metacubex/mihomo/adapter/outbound"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/transport/socks5"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,16 +43,16 @@ var (
 	waitTime = time.Second
 	localIP  = netip.MustParseAddr("127.0.0.1")
 
-	defaultExposedPorts = nat.PortSet{
-		"10002/tcp": struct{}{},
-		"10002/udp": struct{}{},
+	defaultExposedPorts = network.PortSet{
+		network.MustParsePort("10002/tcp"): {},
+		network.MustParsePort("10002/udp"): {},
 	}
-	defaultPortBindings = nat.PortMap{
-		"10002/tcp": []nat.PortBinding{
-			{HostPort: "10002", HostIP: "0.0.0.0"},
+	defaultPortBindings = network.PortMap{
+		network.MustParsePort("10002/tcp"): []network.PortBinding{
+			{HostPort: "10002", HostIP: netip.IPv4Unspecified()},
 		},
-		"10002/udp": []nat.PortBinding{
-			{HostPort: "10002", HostIP: "0.0.0.0"},
+		network.MustParsePort("10002/udp"): []network.PortBinding{
+			{HostPort: "10002", HostIP: netip.IPv4Unspecified()},
 		},
 	}
 	isDarwin = runtime.GOOS == "darwin"
@@ -80,13 +79,13 @@ func init() {
 	}
 	defer c.Close()
 
-	list, err := c.ImageList(context.Background(), types.ImageListOptions{All: true})
+	list, err := c.ImageList(context.Background(), client.ImageListOptions{All: true})
 	if err != nil {
 		panic(err)
 	}
 
 	imageExist := func(image string) bool {
-		for _, item := range list {
+		for _, item := range list.Items {
 			for _, tag := range item.RepoTags {
 				if image == tag {
 					return true
@@ -100,6 +99,7 @@ func init() {
 		ImageShadowsocks,
 		ImageShadowsocksRust,
 		ImageVmess,
+		ImageVmessLatest,
 		ImageVless,
 		ImageTrojan,
 		ImageTrojanGo,
@@ -114,12 +114,18 @@ func init() {
 		}
 
 		println("pulling image:", image)
-		imageStream, err := c.ImagePull(context.Background(), image, types.ImagePullOptions{})
+		imageStream, err := c.ImagePull(context.Background(), image, client.ImagePullOptions{})
 		if err != nil {
 			panic(err)
 		}
 
-		io.Copy(io.Discard, imageStream)
+		if _, err = io.Copy(io.Discard, imageStream); err != nil {
+			imageStream.Close()
+			panic(err)
+		}
+		if err = imageStream.Close(); err != nil {
+			panic(err)
+		}
 	}
 }
 
