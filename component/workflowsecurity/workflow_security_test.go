@@ -54,6 +54,32 @@ func TestWorkflowSecurityContracts(t *testing.T) {
 	require.Len(t, seen, len(workflowPermissionPolicy), "a policy names a missing workflow")
 }
 
+func TestForkDefaultBranchRunsTests(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
+	data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(".github/workflows/test.yml")))
+	require.NoError(t, err)
+
+	var document yaml.Node
+	require.NoError(t, yaml.Unmarshal(data, &document))
+	require.Len(t, document.Content, 1)
+	on := mappingValue(document.Content[0], "on")
+	require.NotNil(t, on)
+	for _, event := range []string{"push", "pull_request"} {
+		config := mappingValue(on, event)
+		require.NotNilf(t, config, "%s trigger is missing", event)
+		branches := mappingValue(config, "branches")
+		require.NotNilf(t, branches, "%s branch filter is missing", event)
+		require.Equal(t, yaml.SequenceNode, branches.Kind)
+		values := make([]string, 0, len(branches.Content))
+		for _, branch := range branches.Content {
+			values = append(values, branch.Value)
+		}
+		require.Containsf(t, values, "master", "%s must cover the fork default branch", event)
+	}
+}
+
 func TestWorkflowSecurityContractsRejectMutations(t *testing.T) {
 	policy := map[string]map[string]string{"test": {"contents": "read"}}
 	valid := `
