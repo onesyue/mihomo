@@ -25,6 +25,7 @@ var workflowPermissionPolicy = map[string]map[string]map[string]string{
 	},
 	filepath.FromSlash(".github/workflows/test.yml"): {
 		"test": {"contents": "read"},
+		"race": {"contents": "read"},
 	},
 }
 
