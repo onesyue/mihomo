@@ -94,8 +94,8 @@ jobs:
           go-version: '1.26'
           cache: false
 
-      - name: Race-test fork state and production Vision paths
+      - name: Race-test fork lifecycle, providers, logging and Vision paths
         run: |
-          go test -race ./component/mmdb ./hub/route ./transport/vless/vision -count=1
+          go test -race ./component/mmdb ./hub/route ./transport/vless/vision ./adapter/provider ./log -count=1
           go test -race ./listener/inbound \
             -run '^TestInboundVless_(TLS|Reality)$' -count=1 -parallel=2
