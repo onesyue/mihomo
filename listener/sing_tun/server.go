@@ -509,6 +509,11 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 	if err != nil {
 		return
 	}
+	// Must run after Start() (the stack is only built there) and before the
+	// first connection: gVisor reads these ranges when it creates an endpoint,
+	// so they apply to every flow but never resize a live one. See
+	// gvisor_tuning.go for why sing-tun's stock 20 KiB is a throughput floor.
+	tuneGVisorStack(tunStack)
 	l.tunStack = tunStack
 
 	if l.autoRedirect != nil {
