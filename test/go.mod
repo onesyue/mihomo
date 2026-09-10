@@ -162,3 +162,7 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/metacubex/sing-tun => github.com/onesyue/sing-tun v0.4.23-0.20260910093510-46f2bf37e4b4
+
+replace github.com/metacubex/gvisor => github.com/onesyue/gvisor v0.0.0-20260910093417-fbc2bdba72a8
