@@ -40,11 +40,13 @@ var InterfaceName = "Meta"
 var EnforceBindInterface = false
 
 type Listener struct {
-	closed  bool
-	options LC.Tun
-	handler *ListenerHandler
-	tunName string
-	addrStr string
+	closeOnce sync.Once
+	closeErr  error
+	closed    bool
+	options   LC.Tun
+	handler   *ListenerHandler
+	tunName   string
+	addrStr   string
 
 	tunIf    tun.Tun
 	tunStack tun.Stack
@@ -324,8 +326,13 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		tunName: tunName,
 	}
 	defer func() {
+		if p := recover(); p != nil {
+			_ = l.Close()
+			l = nil
+			panic(p)
+		}
 		if err != nil {
-			l.Close()
+			_ = l.Close()
 			l = nil
 		}
 	}()
@@ -475,12 +482,14 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		err = E.Cause(err, "build android rules")
 		return
 	}
-	tunIf, err := tunNew(tunOptions)
+	tunIf, err := tunNewForListener(tunOptions, options.BorrowedFileDescriptor)
 	if err != nil {
 		err = E.Cause(err, "configure tun interface")
 		return
 	}
 
+	// Establish the owner immediately; every later error/panic cleanup closes it.
+	l.tunIf = tunIf
 	l.dnsServerIp = dnsServerIp
 	// after tun.New sing-tun has set DNS to TUN interface
 	resolver.AddSystemDnsBlacklist(dnsServerIp...)
@@ -498,13 +507,12 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		InterfaceFinder:        interfaceFinder,
 		EnforceBindInterface:   EnforceBindInterface,
 	}
-	l.tunIf = tunIf
-
 	tunStack, err := tun.NewStack(strings.ToLower(options.Stack.String()), stackOptions)
 	if err != nil {
 		return
 	}
 
+	l.tunStack = tunStack
 	err = tunStack.Start()
 	if err != nil {
 		return
@@ -514,7 +522,6 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 	// so they apply to every flow but never resize a live one. See
 	// gvisor_tuning.go for why sing-tun's stock 20 KiB is a throughput floor.
 	tuneGVisorStack(tunStack)
-	l.tunStack = tunStack
 
 	if l.autoRedirect != nil {
 		if len(l.options.RouteAddressSet) > 0 && len(l.routeAddressSet) == 0 {
@@ -671,23 +678,26 @@ func parseRange[T constraints.Integer](uidRanges []ranges.Range[T], rangeList []
 }
 
 func (l *Listener) Close() error {
-	l.closed = true
-	resolver.RemoveSystemDnsBlacklist(l.dnsServerIp...)
-	if l.autoRedirectOutputMark != 0 {
-		dialer.DefaultRoutingMark.CompareAndSwap(l.autoRedirectOutputMark, 0)
-	}
-	if l.cDialerInterfaceFinder != nil {
-		dialer.DefaultInterfaceFinder.CompareAndSwap(l.cDialerInterfaceFinder, nil)
-	}
-	return common.Close(
-		l.ruleUpdateCallbackCloser,
-		l.tunStack,
-		l.tunIf,
-		l.autoRedirect,
-		l.defaultInterfaceMonitor,
-		l.networkUpdateMonitor,
-		l.packageManager,
-	)
+	l.closeOnce.Do(func() {
+		l.closed = true
+		resolver.RemoveSystemDnsBlacklist(l.dnsServerIp...)
+		if l.autoRedirectOutputMark != 0 {
+			dialer.DefaultRoutingMark.CompareAndSwap(l.autoRedirectOutputMark, 0)
+		}
+		if l.cDialerInterfaceFinder != nil {
+			dialer.DefaultInterfaceFinder.CompareAndSwap(l.cDialerInterfaceFinder, nil)
+		}
+		l.closeErr = common.Close(
+			l.ruleUpdateCallbackCloser,
+			l.tunStack,
+			l.tunIf,
+			l.autoRedirect,
+			l.defaultInterfaceMonitor,
+			l.networkUpdateMonitor,
+			l.packageManager,
+		)
+	})
+	return l.closeErr
 }
 
 func (l *Listener) Config() LC.Tun {

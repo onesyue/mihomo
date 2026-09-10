@@ -55,6 +55,9 @@ type Tun struct {
 	DisableICMPForwarding                 bool           `yaml:"disable-icmp-forwarding" json:"disable-icmp-forwarding,omitempty"`
 	FileDescriptor                        int            `yaml:"file-descriptor" json:"file-descriptor"`
 
+	// Only embedding code may request a borrowed descriptor; never YAML/REST.
+	BorrowedFileDescriptor bool `yaml:"-" json:"-"`
+
 	Inet4RouteAddress        []netip.Prefix `yaml:"inet4-route-address" json:"inet4-route-address,omitempty"`
 	Inet6RouteAddress        []netip.Prefix `yaml:"inet6-route-address" json:"inet6-route-address,omitempty"`
 	Inet4RouteExcludeAddress []netip.Prefix `yaml:"inet4-route-exclude-address" json:"inet4-route-exclude-address,omitempty"`
@@ -93,6 +96,9 @@ func (t *Tun) Sort() {
 }
 
 func (t *Tun) Equal(other Tun) bool {
+	if t.BorrowedFileDescriptor != other.BorrowedFileDescriptor {
+		return false
+	}
 	if t.Enable != other.Enable {
 		return false
 	}

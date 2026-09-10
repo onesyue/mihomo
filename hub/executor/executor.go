@@ -82,6 +82,16 @@ func ParseWithBytes(buf []byte) (*config.Config, error) {
 
 // ApplyConfig dispatch configure to all parts without ExternalController
 func ApplyConfig(cfg *config.Config, force bool) {
+	_ = applyConfig(cfg, force, false)
+}
+
+// ApplyConfigWithResult retains configuration order while reporting real TUN
+// creation errors to embedders. They must clean up any partially applied state.
+func ApplyConfigWithResult(cfg *config.Config, force bool) error {
+	return applyConfig(cfg, force, true)
+}
+
+func applyConfig(cfg *config.Config, force, requireTun bool) error {
 	mux.Lock()
 	defer mux.Unlock()
 	log.SetLevel(cfg.General.LogLevel)
@@ -105,7 +115,9 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	updateDNS(cfg.DNS, cfg.General.IPv6)
 	updateNTP(cfg.NTP) // initialize NTP after DNS because an NTP server may be a hostname.
 	updateListeners(cfg.General, cfg.Listeners, force)
-	updateTun(cfg.General) // tun should not care "force"
+	if err := updateTun(cfg.General); err != nil && requireTun {
+		return err
+	} // tun should not care "force"
 	updateIPTables(cfg)
 	updateTunnels(cfg.Tunnels)
 
@@ -120,6 +132,7 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	updateUpdater(cfg)
 
 	resolver.ResetConnection()
+	return nil
 }
 
 func initInnerTcp() {
@@ -207,8 +220,8 @@ func updateListeners(general *config.General, listeners map[string]C.InboundList
 	listener.ReCreateTuic(general.TuicServer, tunnel.Tunnel)
 }
 
-func updateTun(general *config.General) {
-	listener.ReCreateTun(general.Tun, tunnel.Tunnel)
+func updateTun(general *config.General) error {
+	return listener.ReCreateTunWithResult(general.Tun, tunnel.Tunnel)
 }
 
 func updateExperimental(c *config.Experimental) {

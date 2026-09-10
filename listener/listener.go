@@ -496,6 +496,12 @@ func ReCreateMixed(port int, tunnel C.Tunnel) {
 }
 
 func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
+	_ = ReCreateTunWithResult(tunConf, tunnel)
+}
+
+// ReCreateTunWithResult preserves legacy logging and additionally lets an
+// embedding caller fail startup if the actual TUN/stack could not be created.
+func ReCreateTunWithResult(tunConf LC.Tun, tunnel C.Tunnel) (err error) {
 	tunConf.Sort()
 
 	tunMux.Lock()
@@ -504,7 +510,6 @@ func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
 		tunMux.Unlock()
 	}()
 
-	var err error
 	defer func() {
 		if err != nil {
 			log.Errorln("Start TUN listening error: %s", err.Error())
@@ -516,22 +521,23 @@ func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
 		if tunLister != nil { // some default value in dialer maybe changed when config reload, reset at here
 			tunLister.OnReload()
 		}
-		return
+		return err
 	}
 
 	closeTunListener()
 
 	if !tunConf.Enable {
-		return
+		return err
 	}
 
 	lister, err := sing_tun.New(tunConf, tunnel)
 	if err != nil {
-		return
+		return err
 	}
 	tunLister = lister
 
 	log.Infoln("[TUN] Tun adapter listening at: %s", tunLister.Address())
+	return nil
 }
 
 func PatchTunnel(tunnels []LC.Tunnel, tunnel C.Tunnel) {
