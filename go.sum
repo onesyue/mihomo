@@ -154,8 +154,6 @@ github.com/metacubex/quic-go v0.61.1-0.20260727080200-2548683b76f4 h1:7oX6CpHVqo
 github.com/metacubex/quic-go v0.61.1-0.20260727080200-2548683b76f4/go.mod h1:KTmibo7vZo0gCxdFWrPEQ/u/RGt92mJkrXDE2Qg2/AU=
 github.com/metacubex/randv2 v0.2.0 h1:uP38uBvV2SxYfLj53kuvAjbND4RUDfFJjwr4UigMiLs=
 github.com/metacubex/randv2 v0.2.0/go.mod h1:kFi2SzrQ5WuneuoLLCMkABtiBu6VRrMrWFqSPyj2cxY=
-github.com/metacubex/restls-client-go v0.1.9 h1:QmLKwVFuAjB6rL9lQNKj8CuwHqGMJjV36oskeBPEtVs=
-github.com/metacubex/restls-client-go v0.1.9/go.mod h1:BN/U52vPw7j8VTSh2vleD/MnmVKCov84mS5VcjVHH4g=
 github.com/metacubex/sevenzip v1.6.4 h1:OIL+DeOeSAbKNsjqxcYUMiarRmX6Kaxakb0GT7E9Oik=
 github.com/metacubex/sevenzip v1.6.4/go.mod h1:FP3X9bzFKj9wPxifGN9B3w2fIEicMjzKYIGIhnu+1pw=
 github.com/metacubex/sing v0.5.7 h1:8OC+fhKFSv/l9ehEhJRaZZAOuthfZo68SteBVLe8QqM=
@@ -172,8 +170,6 @@ github.com/metacubex/sing-vmess v0.2.5 h1:m9Zt5I27lB9fmLMZfism9sH2LcnAfShZfwSkf6
 github.com/metacubex/sing-vmess v0.2.5/go.mod h1:AwtlzUgf8COe9tRYAKqWZ+leDH7p5U98a0ZUpYehl8Q=
 github.com/metacubex/sing-wireguard v0.0.0-20260810013230-110eac03c3f0 h1:4g/ObGTfHaY2zXcFjKOUO9aAFk+yFjxsZfUPQPG6J8c=
 github.com/metacubex/sing-wireguard v0.0.0-20260810013230-110eac03c3f0/go.mod h1:H27NH3IgI4qk1Wj8kS9pneNMJYEuxFskcQfkfVW9vnw=
-github.com/metacubex/smux v0.0.0-20260105030934-d0c8756d3141 h1:DK2l6m2Fc85H2BhiAPgbJygiWhesPlfGmF+9Vw6ARdk=
-github.com/metacubex/smux v0.0.0-20260105030934-d0c8756d3141/go.mod h1:/yI4OiGOSn0SURhZdJF3CbtPg3nwK700bG8TZLMBvAg=
 github.com/metacubex/ssh v0.1.0 h1:iGfr99qk/eMHzUnQ/0bTxXT8+8SWqLSHBWDHoAhngzw=
 github.com/metacubex/ssh v0.1.0/go.mod h1:NUtl0d+/f2cG9ECEpMM8iCVOpmggQlC13oLeDUONDlU=
 github.com/metacubex/tailscale v0.0.0-20260807072706-a4fb5feabcbb h1:EE4+ehlygfki5qJvkIYs6zJXhv7WFAX+4cDQi/b6cY8=
@@ -202,8 +198,12 @@ github.com/oasisprotocol/deoxysii v0.0.0-20220228165953-2091330c22b7 h1:1102pQc2
 github.com/oasisprotocol/deoxysii v0.0.0-20220228165953-2091330c22b7/go.mod h1:UqoUn6cHESlliMhOnKLWr+CBH+e3bazUPvFj1XZwAjs=
 github.com/onesyue/gvisor v0.0.0-20260910093417-fbc2bdba72a8 h1:PjFePZs1kxdriNniSRSiDYAHpknYsbSnY3TE9Axlq/g=
 github.com/onesyue/gvisor v0.0.0-20260910093417-fbc2bdba72a8/go.mod h1:mBJW3UXUusd8ZYO5M6mig0uScIey9iIubgdIiQAk2ug=
-github.com/onesyue/sing-tun v0.4.23-0.20260910093510-46f2bf37e4b4 h1:c8dFYyp8axsQ839J5Dzc01jgyfA1yfAAwZ3DgoUbWjM=
-github.com/onesyue/sing-tun v0.4.23-0.20260910093510-46f2bf37e4b4/go.mod h1:9T0SN+FHvzRrn7hgl2kmXy5v8xzzLKW1hITButIPAco=
+github.com/onesyue/restls-client-go v0.1.10-yueto.2 h1:cX4OSYnUmAKh1OAIZFJbByoRm4xGh7ei2fet5oJL434=
+github.com/onesyue/restls-client-go v0.1.10-yueto.2/go.mod h1:BN/U52vPw7j8VTSh2vleD/MnmVKCov84mS5VcjVHH4g=
+github.com/onesyue/sing-tun v0.4.23-yue.6 h1:AZFsniBc4yE5GdUPnOo8gFFAFfQL9JVh5OK6kWNJJrc=
+github.com/onesyue/sing-tun v0.4.23-yue.6/go.mod h1:9T0SN+FHvzRrn7hgl2kmXy5v8xzzLKW1hITButIPAco=
+github.com/onesyue/smux v0.0.0-yue.1 h1:ZVWxUP2fKyWIwYhdlqhtvRa3+XDYnRxbcza9s3zhoKQ=
+github.com/onesyue/smux v0.0.0-yue.1/go.mod h1:/yI4OiGOSn0SURhZdJF3CbtPg3nwK700bG8TZLMBvAg=
 github.com/openacid/errors v0.8.1/go.mod h1:GUQEJJOJE3W9skHm8E8Y4phdl2LLEN8iD7c5gcGgdx0=
 github.com/openacid/low v0.1.21 h1:Tr2GNu4N/+rGRYdOsEHOE89cxUIaDViZbVmKz29uKGo=
 github.com/openacid/low v0.1.21/go.mod h1:q+MsKI6Pz2xsCkzV4BLj7NR5M4EX0sGz5AqotpZDVh0=
