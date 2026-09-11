@@ -94,8 +94,9 @@ jobs:
           go-version: '1.26'
           cache: false
 
-      - name: Race-test fork lifecycle, providers, logging and Vision paths
+      - name: Race-test fork lifecycle, native TUN and full-duplex transports
         run: |
-          go test -race ./component/mmdb ./hub/route ./transport/vless/vision ./adapter/provider ./log -count=1
+          go test -race ./component/mmdb ./hub/route ./transport/vless/vision ./transport/anytls/... ./adapter/provider ./log -count=1
+          go test -race -tags with_gvisor ./listener/sing_tun -count=1
           go test -race ./listener/inbound \
-            -run '^TestInboundVless_(TLS|Reality)$' -count=1 -parallel=2
+            -run '^TestInbound(Vless_(TLS|Reality)|AnyTLS_(TLS|Restls))$' -count=1 -parallel=2

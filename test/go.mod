@@ -163,6 +163,10 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/metacubex/sing-tun => github.com/onesyue/sing-tun v0.4.23-0.20260910093510-46f2bf37e4b4
+replace github.com/metacubex/sing-tun => github.com/onesyue/sing-tun v0.4.23-yue.6
 
 replace github.com/metacubex/gvisor => github.com/onesyue/gvisor v0.0.0-20260910093417-fbc2bdba72a8
+
+replace github.com/metacubex/restls-client-go => github.com/onesyue/restls-client-go v0.1.10-yueto.2
+
+replace github.com/metacubex/smux => github.com/onesyue/smux v0.0.0-yue.1
