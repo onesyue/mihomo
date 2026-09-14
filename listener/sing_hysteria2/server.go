@@ -207,6 +207,9 @@ func New(config LC.Hysteria2Server, lc C.InboundListenConfig, tunnel C.Tunnel, a
 	}
 
 	quicConfig := &quic.Config{
+		// RFC 9000 minimum: allow a 1280-byte path with obfuscation overhead.
+		// Native PMTUD can increase the datagram size after the handshake.
+		InitialPacketSize:              1200,
 		InitialStreamReceiveWindow:     config.InitialStreamReceiveWindow,
 		MaxStreamReceiveWindow:         config.MaxStreamReceiveWindow,
 		InitialConnectionReceiveWindow: config.InitialConnectionReceiveWindow,
@@ -253,6 +256,7 @@ func New(config LC.Hysteria2Server, lc C.InboundListenConfig, tunnel C.Tunnel, a
 
 		ul, err := lc.ListenPacket(context.Background(), "udp", addr)
 		if err != nil {
+			_ = sl.Close()
 			return nil, err
 		}
 
@@ -263,9 +267,13 @@ func New(config LC.Hysteria2Server, lc C.InboundListenConfig, tunnel C.Tunnel, a
 		sl.udpListeners = append(sl.udpListeners, ul)
 		sl.services = append(sl.services, service)
 
-		go func() {
-			_ = service.Start(ul)
-		}()
+		// Start creates the QUIC listener and launches its own accept loop.
+		// Publish readiness only after it returns, so Close cannot race its
+		// listener assignment and startup failures are not discarded.
+		if err := service.Start(ul); err != nil {
+			_ = sl.Close()
+			return nil, err
+		}
 	}
 
 	return sl, nil

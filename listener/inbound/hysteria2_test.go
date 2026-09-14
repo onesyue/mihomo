@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func testInboundHysteria2(t *testing.T, inboundOptions inbound.Hysteria2Option, outboundOptions outbound.Hysteria2Option) {
+func testInboundHysteria2(t *testing.T, inboundOptions inbound.Hysteria2Option, outboundOptions outbound.Hysteria2Option, maximumDatagram ...int) {
 	t.Parallel()
 	inboundOptions.BaseOption = inbound.BaseOption{
 		NameStr: "hysteria2_inbound",
@@ -37,6 +37,10 @@ func testInboundHysteria2(t *testing.T, inboundOptions inbound.Hysteria2Option, 
 		return
 	}
 
+	if len(maximumDatagram) != 0 {
+		addrPort = boundedHysteriaDatagramRelay(t, addrPort, maximumDatagram[0])
+	}
+
 	outboundOptions.Name = "hysteria2_outbound"
 	outboundOptions.Server = addrPort.Addr().String()
 	outboundOptions.Port = int(addrPort.Port())
@@ -50,7 +54,11 @@ func testInboundHysteria2(t *testing.T, inboundOptions inbound.Hysteria2Option, 
 	}
 	defer out.Close()
 
-	tunnel.DoTest(t, out)
+	if len(maximumDatagram) != 0 {
+		tunnel.DoSequentialTest(t, out)
+	} else {
+		tunnel.DoTest(t, out)
+	}
 }
 
 func testInboundHysteria2TLS(t *testing.T, inboundOptions inbound.Hysteria2Option, outboundOptions outbound.Hysteria2Option) {
