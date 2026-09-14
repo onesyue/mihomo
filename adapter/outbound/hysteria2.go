@@ -199,6 +199,9 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 	}
 
 	quicConfig := &quic.Config{
+		// RFC 9000 minimum: allow a 1280-byte path with obfuscation overhead.
+		// Native PMTUD can increase the datagram size after the handshake.
+		InitialPacketSize:              1200,
 		InitialStreamReceiveWindow:     option.InitialStreamReceiveWindow,
 		MaxStreamReceiveWindow:         option.MaxStreamReceiveWindow,
 		InitialConnectionReceiveWindow: option.InitialConnectionReceiveWindow,
