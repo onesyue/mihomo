@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "module": "github.com/metacubex/quic-go",
+  "upstream": "https://github.com/MetaCubeX/quic-go",
+  "upstream_commit": "2548683b76f4",
+  "maintenance_repository": "https://github.com/onesyue/quic-go",
+  "maintenance_tag": "v0.61.1-metacubex-yue.1",
+  "maintenance_tag_object": "2a8ff2e4e0edae21f508182cfd8473c50774e9a3",
+  "source_commit": "e354809d37d60d8ae1072b4449cf6783750fc720",
+  "signing_primary_fingerprint": "D9D3C6E59E7465BD07C2177142239A996FDA9F55",
+  "upstream_fix": "https://github.com/quic-go/quic-go/commit/fcb5bed",
+  "export_paths": [
+    ":(top,glob)*.go", "go.mod", "go.sum", "LICENSE", "README.md", "SECURITY.md",
+    "congestion", "http3", "internal", "metrics", "monotime", "qlog", "qlogwriter", "quicvarint", "testutils"
+  ],
+  "export_tar_sha256": "88ceb634f096d76821e0ccab224eccfc81675f1f430e0a8b3e82ab02b20bb5de",
+  "file_count": 411,
+  "file_set_sha256": "f6d2e2fddb6c7601291329c07b31a2a47cbd8e81404a6258b0db24a16f778998",
+  "digest_format": "SHA256 of sorted UTF-8 lines: file-sha256 + two spaces + module-relative POSIX path + LF",
+  "reason": "The signed maintenance repository is private. Ship one exact source copy with LICENSE so recursive checkouts and archives build without private dependency credentials. Runtime change is the upstream coalesced-close AEAD overhead fix; 1200-byte and maximum-buffer regression tests are included."
+}
