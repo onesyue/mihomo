@@ -72,7 +72,9 @@ jobs:
           rm -rf listener/inbound/*_test.go
 
       - name: Test
-        run: go test ./... -v -count=1
+        run: |
+          python3 third_party/verify_quic_source.py
+          go test ./... -v -count=1
 
       - name: Test with tag with_gvisor
         run: go test ./... -v -count=1 -tags "with_gvisor"
@@ -96,6 +98,7 @@ jobs:
 
       - name: Race-test fork lifecycle, native TUN and full-duplex transports
         run: |
+          python3 third_party/verify_quic_source.py
           go test -race ./component/mmdb ./hub/route ./common/net ./listener/sing_vless ./transport/vless/vision ./transport/anytls/... ./adapter/provider ./log -count=1
           go test -race -tags with_gvisor ./listener/sing_tun -count=1
           go test -race ./listener/inbound \

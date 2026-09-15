@@ -157,3 +157,6 @@ replace github.com/metacubex/gvisor => github.com/onesyue/gvisor v0.0.0-20260910
 replace github.com/metacubex/restls-client-go => github.com/onesyue/restls-client-go v0.1.10-yueto.2
 
 replace github.com/metacubex/smux => github.com/onesyue/smux v0.0.0-yue.1
+
+// MetaCubeX TLS-compatible branch: backport the coalesced-close AEAD size fix.
+replace github.com/metacubex/quic-go => ./third_party/quic-go
