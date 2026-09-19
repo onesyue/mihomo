@@ -482,7 +482,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		err = E.Cause(err, "build android rules")
 		return
 	}
-	tunIf, err := tunNewForListener(tunOptions, options.BorrowedFileDescriptor)
+	tunIf, err := newTunWithDatapathAccelFallback(tunOptions, options.BorrowedFileDescriptor)
 	if err != nil {
 		err = E.Cause(err, "configure tun interface")
 		return
