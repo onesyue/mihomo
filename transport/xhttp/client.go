@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/common/contextutils"
@@ -454,8 +455,9 @@ func (c *Client) DialStreamUp(ctx context.Context) (net.Conn, error) {
 		Path:   downloadCfg.NormalizedPath(),
 	}
 	pr, pw := io.Pipe()
+	uploadWriter := &streamUpWriter{PipeWriter: pw}
 
-	conn := &Conn{writer: pw}
+	conn := &Conn{writer: uploadWriter}
 
 	sessionID := c.generateSessionID()
 
@@ -549,18 +551,26 @@ func (c *Client) DialStreamUp(ctx context.Context) (net.Conn, error) {
 	// Start upload after download TCP is connected, so the server has likely
 	// already processed the GET and created the session. This preserves the
 	// original ordering (download before upload) while still being async.
+	//
+	// The upload request is the only uplink of this conn. If it fails, the
+	// session is dead in both directions: the server will never see the rest of
+	// our data, so it will never answer on the download stream. Fail the whole
+	// conn with the upload error instead of leaving Read blocked on a download
+	// that can no longer make progress (it would otherwise hang until an outer
+	// timeout, and Write would only report io.ErrClosedPipe).
 	go func() {
 		resp, err := uploadTransport.RoundTrip(uploadReq)
 		if err != nil {
-			_ = pw.CloseWithError(err)
+			uploadFailed(uploadWriter, wrc, fmt.Errorf("xhttp stream-up upload: %w", err))
 			return
 		}
 		defer resp.Body.Close()
-		_, _ = io.Copy(io.Discard, resp.Body)
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			_ = pw.CloseWithError(fmt.Errorf("xhttp stream-up upload bad status: %s", resp.Status))
+			uploadFailed(uploadWriter, wrc, fmt.Errorf("xhttp stream-up upload bad status: %s", resp.Status))
+			return
 		}
+		_, _ = io.Copy(io.Discard, resp.Body)
 	}()
 
 	conn.reader = wrc
@@ -679,15 +689,40 @@ func (c *Client) DialPacketUp(ctx context.Context) (net.Conn, error) {
 	return conn, nil
 }
 
+// streamUpWriter is the uplink of a stream-up conn. Once the upload request
+// has failed, writes report that failure instead of the bare io.ErrClosedPipe
+// the pipe returns after net/http has closed the request body.
+type streamUpWriter struct {
+	*io.PipeWriter
+	err atomic.Pointer[error]
+}
+
+func (w *streamUpWriter) Write(b []byte) (int, error) {
+	n, err := w.PipeWriter.Write(b)
+	if err != nil {
+		if uploadErr := w.err.Load(); uploadErr != nil {
+			err = *uploadErr
+		}
+	}
+	return n, err
+}
+
+func uploadFailed(w *streamUpWriter, wrc *WaitReadCloser, err error) {
+	w.err.CompareAndSwap(nil, &err)
+	_ = w.CloseWithError(err)
+	wrc.Abort(err)
+}
+
 // WaitReadCloser is an io.ReadCloser that blocks on Read() until the underlying
 // ReadCloser is provided via Set(). This enables returning a reader immediately
 // while the actual HTTP response body is obtained asynchronously in a goroutine,
 // breaking the synchronous RoundTrip deadlock with CDN header buffering.
 type WaitReadCloser struct {
-	wait chan struct{}
-	once sync.Once
-	rc   io.ReadCloser
-	err  error
+	wait     chan struct{}
+	once     sync.Once
+	rc       io.ReadCloser
+	err      error
+	abortErr atomic.Pointer[error]
 }
 
 func NewWaitReadCloser() *WaitReadCloser {
@@ -718,12 +753,30 @@ func (w *WaitReadCloser) setup(rc io.ReadCloser, err error) {
 	}
 }
 
+// Abort fails the reader with err even if the underlying ReadCloser has
+// already been provided: it is closed, which unblocks a pending Read, and
+// that Read and all later ones return err.
+func (w *WaitReadCloser) Abort(err error) {
+	w.abortErr.CompareAndSwap(nil, &err)
+	w.setup(nil, err)
+	<-w.wait
+	if w.rc != nil {
+		_ = w.rc.Close()
+	}
+}
+
 func (w *WaitReadCloser) Read(b []byte) (int, error) {
 	<-w.wait
 	if w.rc == nil {
 		return 0, w.err
 	}
-	return w.rc.Read(b)
+	n, err := w.rc.Read(b)
+	if err != nil {
+		if abortErr := w.abortErr.Load(); abortErr != nil {
+			err = *abortErr
+		}
+	}
+	return n, err
 }
 
 func (w *WaitReadCloser) Close() error {
