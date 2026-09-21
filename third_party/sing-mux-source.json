@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "module": "github.com/metacubex/sing-mux",
+  "upstream": "https://github.com/MetaCubeX/sing-mux",
+  "upstream_version": "v0.3.10",
+  "upstream_go_sum_h1": "h1:r5CuZ/KuwFsEcRRwpLvzLncW4fDzNfmSEcBEWcy/+94=",
+  "patch": "h2mux.go: CONNECT request carries Header: make(http.Header); h2mux_header_test.go added",
+  "file_count": 27,
+  "file_set_sha256": "ca6110658d7fc8bb08edf4bac9aefbe6007922e32eb2b69e28466e098fdd1246",
+  "digest_format": "SHA256 of sorted UTF-8 lines: file-sha256 + two spaces + module-relative POSIX path + LF",
+  "reason": "Go >= 1.27 with golang.org/x/net >= v0.54.0 selects the x/net/http2 wrapping implementation over net/http, which rejects a request whose Header is nil. Upstream h2mux built its CONNECT request without one, so every h2mux stream failed (client: 'http: nil Request.Header'; server hang). Upstream mihomo is unaffected only because it pins go 1.20 / x/net v0.35. Drop this copy once upstream sing-mux sets the header."
+}

@@ -160,3 +160,8 @@ replace github.com/metacubex/smux => github.com/onesyue/smux v0.0.0-yue.1
 
 // MetaCubeX TLS-compatible branch: backport the coalesced-close AEAD size fix.
 replace github.com/metacubex/quic-go => ./third_party/quic-go
+
+// h2mux under Go >= 1.27: x/net/http2 >= 0.54 wraps net/http, which rejects
+// the upstream CONNECT request's nil Header. One-line fix, see
+// third_party/sing-mux-source.json.
+replace github.com/metacubex/sing-mux => ./third_party/sing-mux
