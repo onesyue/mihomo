@@ -36,6 +36,11 @@ import (
 
 var httpPath = "/inbound_test"
 var httpData = make([]byte, 2*pool.RelayBufferSize)
+
+// concurrentTestMaxInFlight caps the proxy conns the Concurrent test keeps
+// open at once; see concurrentTestFn.
+const concurrentTestMaxInFlight = 32
+
 var remoteAddr = netip.MustParseAddr("1.2.3.4")
 var userUUID = utils.NewUUIDV4().String()
 var tlsCertificate, tlsPrivateKey, tlsFingerprint, _ = ca.NewRandomTLSKeyPair(ca.KeyPairTypeP256)
@@ -299,20 +304,34 @@ func NewHttpTestTunnel() *TestTunnel {
 			}
 			wg := sync.WaitGroup{}
 			num := len(httpData) / 1024
+			// Bound the requests in flight. Unbounded, this dials 2*num (128)
+			// proxy conns at once, and transports that open several TCP
+			// connections per proxy conn (xhttp stream-up/packet-up over
+			// HTTP/1.1: one for the download, one or more for the upload)
+			// then burst 256+ connects at the inbound listener. That overflows
+			// the listen backlog where it is small (macOS kern.ipc.somaxconn
+			// defaults to 128): the kernel resets connections the server never
+			// accepts, and the test fails with errors that have nothing to do
+			// with the proxy under test.
+			sem := make(chan struct{}, concurrentTestMaxInFlight)
 			for i := 1; i <= num; i++ {
 				i := i
 				wg.Add(1)
 				go func() {
-					testFn(t, proxy, "https", i*1024)
 					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					testFn(t, proxy, "https", i*1024)
 				}()
 			}
 			for i := 1; i <= num; i++ {
 				i := i
 				wg.Add(1)
 				go func() {
-					testFn(t, proxy, "http", i*1024)
 					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					testFn(t, proxy, "http", i*1024)
 				}()
 			}
 			wg.Wait()
