@@ -19,9 +19,11 @@ var errFakeUploadReset = errors.New("fake upload: connection reset by peer")
 // body that never ends on its own, and the upload POST according to its
 // fields, mimicking net/http in closing the request body on failure.
 type fakeStreamUpTransport struct {
-	uploadErr    error
-	uploadStatus int
-	downloadData []byte
+	uploadErr     error
+	uploadStatus  int
+	uploadBodyErr error
+	downloadData  []byte
+	downloadDone  chan struct{}
 }
 
 func (f *fakeStreamUpTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -39,6 +41,9 @@ func (f *fakeStreamUpTransport) RoundTrip(req *http.Request) (*http.Response, er
 			}
 			<-req.Context().Done()
 			_ = pw.CloseWithError(req.Context().Err())
+			if f.downloadDone != nil {
+				close(f.downloadDone)
+			}
 		}()
 		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: pr}, nil
 	}
@@ -47,6 +52,9 @@ func (f *fakeStreamUpTransport) RoundTrip(req *http.Request) (*http.Response, er
 		return nil, f.uploadErr
 	}
 	go func() { _, _ = io.Copy(io.Discard, req.Body) }()
+	if f.uploadBodyErr != nil {
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(failingReader{f.uploadBodyErr})}, nil
+	}
 	pr, pw := io.Pipe()
 	go func() {
 		<-req.Context().Done()
@@ -57,6 +65,10 @@ func (f *fakeStreamUpTransport) RoundTrip(req *http.Request) (*http.Response, er
 	}
 	return &http.Response{StatusCode: f.uploadStatus, Status: http.StatusText(f.uploadStatus), Body: pr}, nil
 }
+
+type failingReader struct{ err error }
+
+func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
 
 func dialFakeStreamUp(t *testing.T, rt *fakeStreamUpTransport) net.Conn {
 	t.Helper()
@@ -108,9 +120,15 @@ func TestStreamUpUploadFailureFailsConn(t *testing.T) {
 			rt:      &fakeStreamUpTransport{uploadStatus: http.StatusForbidden},
 			wantErr: "xhttp stream-up upload bad status",
 		},
+		{
+			name:    "ResponseBodyError",
+			rt:      &fakeStreamUpTransport{uploadBodyErr: errFakeUploadReset},
+			wantErr: errFakeUploadReset.Error(),
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			tc.rt.downloadDone = make(chan struct{})
 			conn := dialFakeStreamUp(t, tc.rt)
 
 			_, err, done := readWithTimeout(conn, make([]byte, 16), 5*time.Second)
@@ -125,6 +143,11 @@ func TestStreamUpUploadFailureFailsConn(t *testing.T) {
 			require.Error(t, err)
 			assert.NotErrorIs(t, err, io.ErrClosedPipe)
 			assert.Contains(t, err.Error(), tc.wantErr)
+			select {
+			case <-tc.rt.downloadDone:
+			case <-time.After(time.Second):
+				t.Fatal("failed upload did not cancel its download request")
+			}
 		})
 	}
 }

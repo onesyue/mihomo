@@ -558,19 +558,28 @@ func (c *Client) DialStreamUp(ctx context.Context) (net.Conn, error) {
 	// conn with the upload error instead of leaving Read blocked on a download
 	// that can no longer make progress (it would otherwise hang until an outer
 	// timeout, and Write would only report io.ErrClosedPipe).
+	failUpload := func(err error) {
+		uploadFailed(uploadWriter, wrc, err)
+		// Read failure must also release an outstanding HTTP request even
+		// before the caller closes the connection. Preserve the upload cause
+		// above before cancellation can produce a context-canceled error.
+		reqCancel()
+	}
 	go func() {
 		resp, err := uploadTransport.RoundTrip(uploadReq)
 		if err != nil {
-			uploadFailed(uploadWriter, wrc, fmt.Errorf("xhttp stream-up upload: %w", err))
+			failUpload(fmt.Errorf("xhttp stream-up upload: %w", err))
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			uploadFailed(uploadWriter, wrc, fmt.Errorf("xhttp stream-up upload bad status: %s", resp.Status))
+			failUpload(fmt.Errorf("xhttp stream-up upload bad status: %s", resp.Status))
 			return
 		}
-		_, _ = io.Copy(io.Discard, resp.Body)
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			failUpload(fmt.Errorf("xhttp stream-up upload response: %w", err))
+		}
 	}()
 
 	conn.reader = wrc
