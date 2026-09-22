@@ -80,6 +80,7 @@ jobs:
         run: |
           python3 third_party/verify_quic_source.py
           python3 third_party/verify_sing_mux_source.py
+          python3 third_party/test_source_checkout.py
           go test ./... -v -count=1
 
       - name: Test with tag with_gvisor

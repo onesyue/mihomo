@@ -1,2 +1,3 @@
 # Preserve the signed export byte-for-byte on Windows checkouts as well.
 quic-go/** -text -whitespace
+sing-mux/** -text -whitespace
