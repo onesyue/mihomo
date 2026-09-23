@@ -108,6 +108,7 @@ jobs:
           python3 third_party/verify_quic_source.py
           python3 third_party/verify_sing_mux_source.py
           go test -race ./component/mmdb ./hub/route ./common/net ./listener/sing_vless ./transport/vless/vision ./transport/anytls/... ./transport/xhttp ./adapter/provider ./log -count=1
+          go test -race ./component/reachprobe ./component/dialer ./transport/vless ./adapter/outbound ./config -count=1
           go test -race -tags with_gvisor ./listener/sing_tun -count=1
           go test -race ./listener/inbound \
-            -run '^TestInbound(Vless_(TLS|Reality|XHTTP_H1_Encryption)|AnyTLS_(TLS|Restls))$' -count=1 -parallel=2
+            -run '^Test(Inbound(Vless_(TLS|Reality|XHTTP_H1_Encryption|YueConnTag)|AnyTLS_(TLS|Restls)|Hysteria2_YueConnTag)|ReachHookSeesQUICAndTLSHandshakes)$' -count=1 -parallel=2

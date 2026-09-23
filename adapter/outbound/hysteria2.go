@@ -62,6 +62,7 @@ type Hysteria2Option struct {
 	BBRProfile        string     `proxy:"bbr-profile,omitempty"`
 	UdpMTU            int        `proxy:"udp-mtu,omitempty"`
 	HandshakeTimeout  int        `proxy:"handshake-timeout,omitempty"`
+	YueConnTag        bool       `proxy:"yue-conn-tag,omitempty"`
 
 	RealmOpts Hysteria2RealmOption `proxy:"realm-opts,omitempty"`
 
@@ -217,7 +218,7 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 		GeckoPassword:      geckoPassword,
 		GeckoMinPacketSize: geckoMinPacketSize,
 		GeckoMaxPacketSize: geckoMaxPacketSize,
-		Password:           option.Password,
+		Password:           yueHysteria2Password(option.Password, option.YueConnTag),
 		TLSConfig:          tlsClientConfig,
 		QUICConfig:         quicConfig,
 		UDPDisabled:        false,

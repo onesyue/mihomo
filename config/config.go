@@ -27,6 +27,7 @@ import (
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/component/sniffer"
 	"github.com/metacubex/mihomo/component/trie"
+	"github.com/metacubex/mihomo/component/yueconntag"
 	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
 	snifferTypes "github.com/metacubex/mihomo/constant/sniffer"
@@ -467,6 +468,10 @@ type RawConfig struct {
 	TLS           RawTLS                    `yaml:"tls" json:"tls"`
 
 	ClashForAndroid RawClashForAndroid `yaml:"clash-for-android" json:"clash-for-android"`
+
+	// YueDeviceTag is injected by the YueLink host, which force-overwrites
+	// any subscription value. See component/yueconntag.
+	YueDeviceTag string `yaml:"yue-device-tag" json:"yue-device-tag"`
 }
 
 // Parse config
@@ -672,6 +677,9 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 	config.TLS = tlsCfg
+
+	// YueLink: the device tag must be in place before any outbound is built.
+	yueconntag.Set(rawCfg.YueDeviceTag)
 
 	proxies, providers, err := parseProxies(rawCfg)
 	if err != nil {

@@ -88,6 +88,7 @@ type VlessOption struct {
 	PrivateKey        string            `proxy:"private-key,omitempty"`
 	ServerName        string            `proxy:"servername,omitempty"`
 	ClientFingerprint string            `proxy:"client-fingerprint,omitempty"`
+	YueConnTag        bool              `proxy:"yue-conn-tag,omitempty"`
 }
 
 type XHTTPOptions struct {
@@ -486,7 +487,7 @@ func NewVless(option VlessOption) (*Vless, error) {
 		option.PacketAddr = false
 	}
 
-	client, err := vless.NewClient(option.UUID, addons)
+	client, err := vless.NewClient(option.UUID, yueVlessAddons(addons, option.YueConnTag))
 	if err != nil {
 		return nil, err
 	}
