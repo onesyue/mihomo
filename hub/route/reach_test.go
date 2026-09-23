@@ -64,3 +64,18 @@ func jsonInt(v int64) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func TestReachWhoamiRejectsForeignURLs(t *testing.T) {
+	h := reachRouterFor(reachprobe.New(nil))
+	for _, u := range []string{
+		"http://edge.example/api/ops/client/reach/whoami", // not https
+		"https://edge.example/api/ops/client/edge-roster", // not whoami
+		"https://user:pw@edge.example/reach/whoami",       // credentials
+		"file:///etc/passwd",
+	} {
+		rec := reachDo(t, h, "POST", "/whoami", `{"url":"`+u+`"}`)
+		if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "whoami url") {
+			t.Fatalf("%s: %d %s", u, rec.Code, rec.Body)
+		}
+	}
+}

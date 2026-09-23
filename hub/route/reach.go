@@ -20,6 +20,7 @@ import (
 //	PUT    /yue/reach/network  {"network_type":"wifi|cellular|ethernet|other|unknown"}
 //	POST   /yue/reach/active   {"network_type","metered","low_power"} -> {"started","reason"}
 //	POST   /yue/reach/drain    -> {"batches":[...]}, clears the ring
+//	POST   /yue/reach/whoami   {"url","user_agent"} -> {"status","body"}; direct (tunnel-bypassing) GET
 //	DELETE /yue/reach          forget everything (diagnostics turned off)
 const reachMaxBody = 256 << 10
 
@@ -63,6 +64,22 @@ func reachRouterFor(p *reachprobe.Probe) http.Handler {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(p.Drain())
+	})
+	r.Post("/whoami", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			URL       string `json:"url"`
+			UserAgent string `json:"user_agent"`
+		}
+		if !decodeReachBody(w, r, &body) {
+			return
+		}
+		status, resp, err := reachprobe.FetchWhoami(r.Context(), body.URL, body.UserAgent)
+		if err != nil {
+			render.Status(r, http.StatusBadGateway)
+			render.JSON(w, r, newError(err.Error()))
+			return
+		}
+		render.JSON(w, r, render.M{"status": status, "body": string(resp)})
 	})
 	r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
 		p.Reset()
