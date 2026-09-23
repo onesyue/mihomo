@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 	"github.com/metacubex/mihomo/common/atomic"
 	"github.com/metacubex/mihomo/component/keepalive"
 	"github.com/metacubex/mihomo/component/mptcp"
+	"github.com/metacubex/mihomo/component/reachhook"
 	"github.com/metacubex/mihomo/component/resolver"
 )
 
@@ -138,6 +140,21 @@ func listenConfig(network, address string, rAddrPort netip.AddrPort, opt option)
 }
 
 func dialContext(ctx context.Context, network string, destination netip.Addr, port string, opt option) (net.Conn, error) {
+	// YueLink reachprobe: report plain TCP connects (never custom
+	// NetDialers — those are QUIC/proxy-chain dialers with their own
+	// semantics). A no-op unless an observer is installed.
+	if reachhook.Enabled() && opt.netDialer == nil && strings.HasPrefix(network, "tcp") {
+		start := time.Now()
+		conn, err := dialContextInner(ctx, network, destination, port, opt)
+		if p, perr := strconv.ParseUint(port, 10, 16); perr == nil {
+			reachhook.Observe(reachhook.PhaseTCP, netip.AddrPortFrom(destination, uint16(p)), time.Since(start), err)
+		}
+		return conn, err
+	}
+	return dialContextInner(ctx, network, destination, port, opt)
+}
+
+func dialContextInner(ctx context.Context, network string, destination netip.Addr, port string, opt option) (net.Conn, error) {
 	var address string
 	destination, port = resolver.LookupIP4P(destination, port)
 	address = net.JoinHostPort(destination.String(), port)

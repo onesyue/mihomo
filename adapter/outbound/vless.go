@@ -331,7 +331,9 @@ func (v *Vless) streamTLSConn(ctx context.Context, conn net.Conn, isH2 bool) (ne
 			tlsOpts.Host = v.option.ServerName
 		}
 
-		return vmess.StreamTLSConn(ctx, conn, &tlsOpts)
+		return observeTLSHandshake(conn, func() (net.Conn, error) {
+			return vmess.StreamTLSConn(ctx, conn, &tlsOpts)
+		})
 	}
 
 	return conn, nil
