@@ -40,9 +40,11 @@ jobs:
           # x/net/http2 to its net/http wrapper; without this lane the h2mux
           # nil-Header regression (third_party/sing-mux-source.json) never
           # ran in CI.
+          # 1.26 is the floor: golang.org/x/crypto >= v0.56.0 (the fix for
+          # GO-2026-6354/6355) declares `go 1.26.0`, so under
+          # GOTOOLCHAIN=local a 1.25 lane can no longer load the module.
           - '1.27'
           - '1.26'
-          - '1.25'
       fail-fast: false
     runs-on: ${{ matrix.os }}
     defaults:
