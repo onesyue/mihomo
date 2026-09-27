@@ -3,10 +3,10 @@ package updater
 import (
 	"context"
 	"io"
-	"os"
 	"time"
 
 	mihomoHttp "github.com/metacubex/mihomo/component/http"
+	C "github.com/metacubex/mihomo/constant"
 
 	"github.com/metacubex/http"
 )
@@ -25,6 +25,8 @@ func downloadForBytes(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// saveFile writes a downloaded geodata file, confined to the safe path that
+// contains it (YueLink; see C.Path.OpenFileBeneath).
 func saveFile(bytes []byte, path string) error {
-	return os.WriteFile(path, bytes, 0o644)
+	return C.Path.WriteFileBeneath(path, bytes, 0o644)
 }

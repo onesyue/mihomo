@@ -77,7 +77,10 @@ func downloadToPath(url string, path string) (err error) {
 	}
 	defer resp.Body.Close()
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	// YueLink: confined to the safe path that contains it (see
+	// C.Path.OpenFileBeneath). O_TRUNC: a shorter download must not leave
+	// the tail of the previous file behind.
+	f, err := C.Path.OpenFileBeneath(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}

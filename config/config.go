@@ -630,6 +630,9 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 	log.Infoln("Start initial configuration in progress") //Segment finished in xxm
 	startTime := time.Now()
 
+	// YueLink: must run before anything reads rawCfg (see hardened.go).
+	applyHardenedPolicy(rawCfg)
+
 	general, err := parseGeneral(rawCfg)
 	if err != nil {
 		return nil, err

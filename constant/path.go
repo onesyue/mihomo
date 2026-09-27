@@ -1,7 +1,9 @@
 package constant
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	P "path"
 	"path/filepath"
@@ -31,6 +33,13 @@ var Path = func() *path {
 		homeDir, _ = os.Getwd()
 	}
 	allowUnsafePath, _ := strconv.ParseBool(os.Getenv("SKIP_SAFE_PATH_CHECK"))
+	if Hardened {
+		// YueLink: a privileged helper runs this process on behalf of an
+		// unprivileged user. The escape hatches below exist for operators
+		// who own the whole machine; honouring them here would hand the
+		// config author the helper's privileges.
+		allowUnsafePath = false
+	}
 	homeDir = P.Join(homeDir, ".config", Name)
 
 	if _, err = os.Stat(homeDir); err != nil {
@@ -40,7 +49,11 @@ var Path = func() *path {
 	}
 
 	var safePaths []string
-	for _, safePath := range filepath.SplitList(os.Getenv("SAFE_PATHS")) {
+	safePathsEnv := os.Getenv("SAFE_PATHS")
+	if Hardened {
+		safePathsEnv = ""
+	}
+	for _, safePath := range filepath.SplitList(safePathsEnv) {
 		safePath = strings.TrimSpace(safePath)
 		if len(safePath) == 0 {
 			continue
@@ -85,19 +98,115 @@ func (p *path) Resolve(path string) string {
 }
 
 // IsSafePath return true if path is a subpath of homedir (or in the SAFE_PATHS environment variable)
+//
+// YueLink: the check is made twice — once on the lexical path and once on
+// the path with every existing symlink resolved. Upstream compared the
+// literal strings only, so `<home>/ruleset -> /etc` passed the check and a
+// provider write to `ruleset/x` landed in /etc. When mihomo runs under a
+// privileged helper that is a local privilege escalation. A path whose
+// existing part cannot be resolved (dangling or looping symlink, EACCES)
+// is not provably inside a safe path and is rejected.
 func (p *path) IsSafePath(path string) bool {
 	if p.allowUnsafePath || features.CMFA {
 		return true
 	}
 	path = p.Resolve(path)
 	for _, safePath := range p.SafePaths() {
-		if rel, err := filepath.Rel(safePath, path); err == nil {
-			if filepath.IsLocal(rel) {
-				return true
-			}
+		if !isLocalTo(safePath, path) {
+			continue
+		}
+		if !filepath.IsAbs(path) || !filepath.IsAbs(safePath) {
+			// No filesystem anchor to resolve against (an empty home dir in
+			// unit tests); the lexical check is all that can be made.
+			return true
+		}
+		realPath, ok := resolveExistingPrefix(path)
+		if !ok {
+			continue
+		}
+		realSafe, ok := resolveExistingPrefix(safePath)
+		if !ok {
+			continue
+		}
+		if isLocalTo(realSafe, realPath) {
+			return true
 		}
 	}
 	return false
+}
+
+// SafeRoot returns the safe path that contains path, and path relative to
+// it, using the same double check as IsSafePath. Writers open the returned
+// root with os.OpenRoot so that no component can be swapped for a link that
+// escapes it between the check and the write.
+func (p *path) SafeRoot(path string) (root string, rel string, ok bool) {
+	path = p.Resolve(path)
+	if !filepath.IsAbs(path) {
+		return "", "", false
+	}
+	for _, safePath := range p.SafePaths() {
+		if !filepath.IsAbs(safePath) || !isLocalTo(safePath, path) {
+			continue
+		}
+		realPath, ok := resolveExistingPrefix(path)
+		if !ok {
+			continue
+		}
+		realSafe, ok := resolveExistingPrefix(safePath)
+		if !ok {
+			continue
+		}
+		if !isLocalTo(realSafe, realPath) {
+			continue
+		}
+		// The lexical remainder, not the resolved one: the writer must see
+		// (and refuse) a link in the final component, not silently write
+		// to wherever it points.
+		r, err := filepath.Rel(safePath, path)
+		if err != nil || !filepath.IsLocal(r) {
+			continue
+		}
+		return realSafe, r, true
+	}
+	return "", "", false
+}
+
+// AllowUnsafePath reports whether the operator disabled the safe path check.
+func (p *path) AllowUnsafePath() bool {
+	return p.allowUnsafePath || features.CMFA
+}
+
+func isLocalTo(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	return err == nil && filepath.IsLocal(rel)
+}
+
+// resolveExistingPrefix resolves every symlink in the longest existing
+// prefix of path and re-appends the components that do not exist yet (they
+// cannot be links). It fails when a component exists but cannot be resolved.
+func resolveExistingPrefix(path string) (string, bool) {
+	path = filepath.Clean(path)
+	var missing []string
+	for range 4096 {
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, true
+		}
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			// It exists (a dangling or looping link, or an entry we may not
+			// traverse): where it points cannot be proven.
+			return "", false
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", false
+		}
+		missing = append(missing, filepath.Base(path))
+		path = parent
+	}
+	return "", false
 }
 
 func (p *path) SafePaths() []string {

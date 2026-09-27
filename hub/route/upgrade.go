@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/metacubex/mihomo/component/updater"
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
 
 	"github.com/metacubex/chi"
@@ -14,6 +15,12 @@ import (
 
 func upgradeRouter() http.Handler {
 	r := chi.NewRouter()
+	if C.Hardened {
+		// YueLink: under the privileged helper, /upgrade would replace the
+		// helper-installed core binary (whose hash the helper verifies) or
+		// extract a downloaded UI archive as root. Neither is offered there.
+		return r
+	}
 	r.Post("/ui", updateUI)
 	if !embedMode { // disallow upgrade core/geo in embed mode
 		r.Post("/", upgradeCore)

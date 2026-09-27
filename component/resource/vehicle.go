@@ -5,12 +5,12 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/metacubex/mihomo/common/utils"
 	mihomoHttp "github.com/metacubex/mihomo/component/http"
 	"github.com/metacubex/mihomo/component/profile/cachefile"
+	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
 
 	"github.com/metacubex/http"
@@ -35,16 +35,11 @@ func SetETag(b bool) {
 	etag = b
 }
 
+// safeWrite writes a provider cache file. YueLink: confined to the safe
+// path that contains it (see C.Path.OpenFileBeneath) — the previous
+// MkdirAll + os.WriteFile followed symlinks in every component.
 func safeWrite(path string, buf []byte) error {
-	dir := filepath.Dir(path)
-
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, dirMode); err != nil {
-			return err
-		}
-	}
-
-	return os.WriteFile(path, buf, fileMode)
+	return C.Path.WriteFileBeneath(path, buf, fileMode)
 }
 
 type FileVehicle struct {
