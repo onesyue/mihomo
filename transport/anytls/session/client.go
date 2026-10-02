@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -123,7 +124,17 @@ func (c *Client) getIdleSession() (idle *Session) {
 }
 
 func (c *Client) createSession(ctx context.Context) (*Session, error) {
-	underlying, err := c.dialOut(ctx)
+	// A caller's dial also belongs to this client: removing the proxy must
+	// cancel pending TLS/transport work even if the caller is still alive.
+	// AfterFunc avoids one waiting goroutine per ordinary dial; unregister it
+	// when the dial settles so the client retains no completed dial contexts.
+	dialCtx, cancel := context.WithCancel(ctx)
+	stopCancel := context.AfterFunc(c.die, cancel)
+	defer func() {
+		stopCancel()
+		cancel()
+	}()
+	underlying, err := c.dialOut(dialCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +154,13 @@ func (c *Client) createSession(ctx context.Context) (*Session, error) {
 	}
 
 	c.sessionsLock.Lock()
+	// Close cancels die before taking this same lock to collect sessions.
+	// A dial that ignores cancellation must not publish a new session after
+	// that collection, otherwise neither its transport nor recvLoop is owned.
+	if c.die.Err() != nil {
+		c.sessionsLock.Unlock()
+		return nil, errors.Join(io.ErrClosedPipe, underlying.Close())
+	}
 	c.sessions[session.seq] = session
 	c.sessionsLock.Unlock()
 
