@@ -71,7 +71,7 @@ require (
 	github.com/metacubex/chacha v0.1.5 // indirect
 	github.com/metacubex/chi v0.1.1 // indirect
 	github.com/metacubex/connect-ip-go v0.0.0-20260727083417-67ccdb0cf771 // indirect
-	github.com/metacubex/cpu v0.1.1 // indirect
+	github.com/metacubex/cpu v0.1.2 // indirect
 	github.com/metacubex/edwards25519 v1.2.0 // indirect
 	github.com/metacubex/fswatch v0.1.1 // indirect
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759 // indirect
@@ -106,7 +106,7 @@ require (
 	github.com/metacubex/tailscale-wireguard-go v0.0.0-20260725073821-e61ab99cede2 // indirect
 	github.com/metacubex/tfo-go v0.0.0-20260623020846-376a77860b8c // indirect
 	github.com/metacubex/tls v0.1.8 // indirect
-	github.com/metacubex/utls v1.8.7 // indirect
+	github.com/metacubex/utls v1.8.8 // indirect
 	github.com/metacubex/wazero v0.0.0-20260628025728-9ae6bdcf2a7d // indirect
 	github.com/metacubex/wireguard-go v0.0.0-20250820062549-a6cecdd7f57f // indirect
 	github.com/metacubex/yamux v0.0.0-20250918083631-dd5f17c0be49 // indirect
