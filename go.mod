@@ -36,7 +36,7 @@ require (
 	github.com/metacubex/restls-client-go v0.1.9
 	github.com/metacubex/sevenzip v1.6.4
 	github.com/metacubex/sing v0.5.7
-	github.com/metacubex/sing-mux v0.3.10
+	github.com/metacubex/sing-mux v0.3.12
 	github.com/metacubex/sing-quic v0.0.0-20260904234848-1c242664697a
 	github.com/metacubex/sing-shadowsocks v0.2.13
 	github.com/metacubex/sing-shadowsocks2 v0.2.8
@@ -160,8 +160,3 @@ replace github.com/metacubex/smux => github.com/onesyue/smux v0.0.0-yue.1
 
 // MetaCubeX TLS-compatible branch: backport the coalesced-close AEAD size fix.
 replace github.com/metacubex/quic-go => ./third_party/quic-go
-
-// h2mux under Go >= 1.27: x/net/http2 >= 0.54 wraps net/http, which rejects
-// the upstream CONNECT request's nil Header. One-line fix, see
-// third_party/sing-mux-source.json.
-replace github.com/metacubex/sing-mux => ./third_party/sing-mux

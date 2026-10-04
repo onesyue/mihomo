@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Exercise vendored byte provenance through a real Windows-style Git checkout."""
+"""Exercise vendored byte provenance through a real Windows-style Git checkout.
+
+sing-mux is consumed from the Go checksum database since v0.3.12 (see
+sing-mux-source.json); QUIC is the remaining byte-for-byte vendored copy.
+"""
 
 import os
 from pathlib import Path
@@ -11,21 +15,17 @@ import unittest
 
 
 class SourceCheckoutTest(unittest.TestCase):
-    def checkout(self, directory: Path, *, remove_sing_mux_rule: bool) -> Path:
+    def checkout(self, directory: Path, *, remove_quic_rule: bool) -> Path:
         source = Path(__file__).resolve().parent
         repo = directory / "repo"
         target = repo / "third_party"
         target.mkdir(parents=True)
-        for module in ("quic-go", "sing-mux"):
-            shutil.copytree(source / module, target / module)
-            for filename in (f"{module}-source.json", f"verify_{module.replace('-', '_')}_source.py"):
-                # QUIC's established verifier is named without the -go suffix.
-                if filename == "verify_quic_go_source.py":
-                    filename = "verify_quic_source.py"
-                shutil.copyfile(source / filename, target / filename)
+        shutil.copytree(source / "quic-go", target / "quic-go")
+        for filename in ("quic-go-source.json", "verify_quic_source.py"):
+            shutil.copyfile(source / filename, target / filename)
         attributes = (source / ".gitattributes").read_text()
-        if remove_sing_mux_rule:
-            attributes = "\n".join(line for line in attributes.splitlines() if not line.startswith("sing-mux/")) + "\n"
+        if remove_quic_rule:
+            attributes = "\n".join(line for line in attributes.splitlines() if not line.startswith("quic-go/")) + "\n"
         (target / ".gitattributes").write_text(attributes)
         environment = os.environ.copy()
         for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
@@ -44,27 +44,24 @@ class SourceCheckoutTest(unittest.TestCase):
         git("checkout-index", "--all", f"--prefix={output.as_posix()}/")
         return output / "third_party"
 
-    def verify(self, root: Path, module: str) -> subprocess.CompletedProcess[str]:
+    def verify(self, root: Path) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, str(root / f"verify_{module}_source.py")],
+            [sys.executable, str(root / "verify_quic_source.py")],
             capture_output=True, text=True,
         )
 
-    def test_windows_checkout_preserves_both_recorded_source_copies(self) -> None:
+    def test_windows_checkout_preserves_the_recorded_quic_copy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            checkout = self.checkout(Path(directory), remove_sing_mux_rule=False)
-            for module in ("quic", "sing_mux"):
-                with self.subTest(module=module):
-                    result = self.verify(checkout, module)
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            checkout = self.checkout(Path(directory), remove_quic_rule=False)
+            result = self.verify(checkout)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_lost_sing_mux_rule_is_detected_by_unchanged_digest(self) -> None:
+    def test_lost_quic_rule_is_detected_by_unchanged_digest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            checkout = self.checkout(Path(directory), remove_sing_mux_rule=True)
-            self.assertEqual(self.verify(checkout, "quic").returncode, 0)
-            result = self.verify(checkout, "sing_mux")
+            checkout = self.checkout(Path(directory), remove_quic_rule=True)
+            result = self.verify(checkout)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("differs from the recorded patched copy", result.stderr)
+            self.assertIn("differs from the signed export", result.stderr)
 
 
 if __name__ == "__main__":

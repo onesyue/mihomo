@@ -1,12 +1,23 @@
 {
-  "schema": 1,
+  "schema": 2,
   "module": "github.com/metacubex/sing-mux",
   "upstream": "https://github.com/MetaCubeX/sing-mux",
-  "upstream_version": "v0.3.10",
-  "upstream_go_sum_h1": "h1:r5CuZ/KuwFsEcRRwpLvzLncW4fDzNfmSEcBEWcy/+94=",
-  "patch": "h2mux.go: CONNECT request carries Header: make(http.Header); h2mux_header_test.go added",
-  "file_count": 27,
-  "file_set_sha256": "ca6110658d7fc8bb08edf4bac9aefbe6007922e32eb2b69e28466e098fdd1246",
-  "digest_format": "SHA256 of sorted UTF-8 lines: file-sha256 + two spaces + module-relative POSIX path + LF",
-  "reason": "Go >= 1.27 with golang.org/x/net >= v0.54.0 selects the x/net/http2 wrapping implementation over net/http, which rejects a request whose Header is nil. Upstream h2mux built its CONNECT request without one, so every h2mux stream failed (client: 'http: nil Request.Header'; server hang). Upstream mihomo is unaffected only because it pins go 1.20 / x/net v0.35. Drop this copy once upstream sing-mux sets the header."
+  "mode": "upstream-module",
+  "version": "v0.3.12",
+  "go_sum_h1": "h1:80jrJsGgRW7ZHpJCRpwJhG3yzT5muEHIWjaOsDJZ2wE=",
+  "go_mod_h1": "h1:8bT7ZKT3clRrJjYc/x5CRYibC1TX/bK73a3r3+2E+Fc=",
+  "module_graphs": ["go.mod", "test/go.mod"],
+  "upstream_fixes": {
+    "b6020240": "h2mux CONNECT request carries Header: make(http.Header) (the line the retired vendored copy existed for)",
+    "7c156502": "h2mux/yamux client streams expose CloseWrite (END_STREAM / FIN instead of RST on half-close)",
+    "714fc2e0": "yamux wrap stream CloseWrite keeps the read side open"
+  },
+  "retired_vendored_copy": {
+    "upstream_version": "v0.3.10",
+    "patch": "h2mux.go: Header: make(http.Header); h2mux_header_test.go",
+    "introduced_by": "61d28d16a9e30c2cd65ec9836d3303b883d7ae75",
+    "file_set_sha256": "ca6110658d7fc8bb08edf4bac9aefbe6007922e32eb2b69e28466e098fdd1246"
+  },
+  "equivalence_evidence": "Go 1.27.1 + golang.org/x/net v0.58.0: upstream v0.3.12 passes the retired h2mux_header_test.go and its own yamux half-close test (also under -race); listener/inbound singmux subtests are the same 300 PASS / 3 SKIP set as with the vendored copy (52 h2mux); upstream v0.3.10 without the replace times out in the same h2mux tests.",
+  "reason": "Go >= 1.27 with golang.org/x/net >= v0.54.0 selects the x/net/http2 net/http wrapper, which rejects a request whose Header is nil. Upstream sing-mux fixed the CONNECT request in v0.3.12, so the module is consumed unmodified from the Go checksum database; this record pins the exact go.sum hashes and forbids a replace or a resurrected copy."
 }
