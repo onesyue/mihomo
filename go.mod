@@ -150,7 +150,7 @@ require (
 // for https://github.com/golang/protobuf/issues/1704
 replace google.golang.org/protobuf => github.com/metacubex/protobuf-go v0.0.0-20260306035419-7ceee0674686
 
-replace github.com/metacubex/sing-tun => github.com/onesyue/sing-tun v0.4.23-yue.6
+replace github.com/metacubex/sing-tun => github.com/onesyue/sing-tun v0.4.23-yue.7
 
 replace github.com/metacubex/gvisor => github.com/onesyue/gvisor v0.0.0-20260910093417-fbc2bdba72a8
 
