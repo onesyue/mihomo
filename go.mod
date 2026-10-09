@@ -74,7 +74,7 @@ require (
 	github.com/oschwald/maxminddb-golang v1.12.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.60.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
 	google.golang.org/protobuf v1.34.2
