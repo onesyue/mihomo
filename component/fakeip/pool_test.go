@@ -212,6 +212,52 @@ func TestPool_Clone(t *testing.T) {
 	assert.True(t, lastExist)
 }
 
+func TestPool_CloneKeepsAllocationState(t *testing.T) {
+	ipnet := netip.MustParsePrefix("192.168.0.1/24")
+	pool, _ := New(Options{
+		IPNet: ipnet,
+		Size:  10,
+	})
+
+	foo := pool.Lookup("foo.com")
+	bar := pool.Lookup("bar.com")
+
+	newPool, _ := New(Options{
+		IPNet: ipnet,
+		Size:  10,
+	})
+	newPool.CloneFrom(pool)
+
+	// a fresh allocation must not overwrite the retained mappings
+	baz := newPool.Lookup("baz.com")
+	assert.NotEqual(t, foo, baz)
+	assert.NotEqual(t, bar, baz)
+	assert.Equal(t, foo, newPool.Lookup("foo.com"))
+	assert.Equal(t, bar, newPool.Lookup("bar.com"))
+	host, ok := newPool.LookBack(foo)
+	assert.True(t, ok)
+	assert.Equal(t, "foo.com", host)
+}
+
+func TestPool_CloneFromSelf(t *testing.T) {
+	pool, err := New(Options{IPNet: netip.MustParsePrefix("198.18.0.0/24"), Size: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ip := pool.Lookup("example.invalid")
+	done := make(chan struct{})
+	go func() {
+		pool.CloneFrom(pool)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cloning a pool to itself deadlocked")
+	}
+	assert.Equal(t, ip, pool.Lookup("example.invalid"))
+}
+
 func TestPool_Error(t *testing.T) {
 	ipnet := netip.MustParsePrefix("192.168.0.1/31")
 	_, err := New(Options{
