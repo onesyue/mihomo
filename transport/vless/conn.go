@@ -1,6 +1,7 @@
 package vless
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/metacubex/mihomo/common/buf"
 	N "github.com/metacubex/mihomo/common/net"
+	"github.com/metacubex/mihomo/common/probestage"
 	"github.com/metacubex/mihomo/transport/vless/vision"
 
 	"github.com/gofrs/uuid/v5"
@@ -16,11 +18,20 @@ import (
 
 type Conn struct {
 	N.ExtendedConn
-	dst      *DstAddr
-	id       uuid.UUID
-	addons   *Addons
-	received bool
-	sent     bool
+	dst          *DstAddr
+	id           uuid.UUID
+	addons       *Addons
+	received     bool
+	sent         bool
+	probeContext context.Context
+}
+
+// ObserveProbeResponse attaches the request-local trace without adding I/O.
+func ObserveProbeResponse(conn net.Conn, ctx context.Context) {
+	if vc, ok := conn.(*Conn); ok {
+		vc.probeContext = ctx
+		probestage.Mark(ctx, probestage.VLESSFirstPacket)
+	}
 }
 
 func (vc *Conn) Read(b []byte) (int, error) {
@@ -131,6 +142,11 @@ func (vc *Conn) recvResponse() (err error) {
 		return errors.New("unexpected response version")
 	}
 
+	// A valid VLESS response header arrived. Subsequent target failures are
+	// not mislabeled as entry TLS or VLESS authentication failures.
+	if vc.probeContext != nil {
+		probestage.Mark(vc.probeContext, probestage.TargetResponse)
+	}
 	length := int64(buffer[1])
 	if length != 0 { // addon data length > 0
 		io.CopyN(io.Discard, vc.ExtendedConn, length) // just discard

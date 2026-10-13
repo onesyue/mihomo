@@ -12,6 +12,7 @@ import (
 
 	"github.com/metacubex/mihomo/common/convert"
 	N "github.com/metacubex/mihomo/common/net"
+	"github.com/metacubex/mihomo/common/probestage"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
@@ -300,6 +301,8 @@ func (v *Vless) streamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 	}
 	if err != nil {
 		conn = nil
+	} else {
+		vless.ObserveProbeResponse(conn, ctx)
 	}
 	return
 }
@@ -353,6 +356,13 @@ func (v *Vless) dialContext(ctx context.Context) (c net.Conn, err error) {
 
 // DialContext implements C.ProxyAdapter
 func (v *Vless) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
+	// Only this eager transport has all four observable boundaries. Lazy,
+	// multiplexed and other protocols deliberately remain unknown.
+	if v.option.Network == "ws" && v.option.TLS && v.option.WSOpts.MaxEarlyData == 0 &&
+		!v.option.WSOpts.V2rayHttpUpgrade && !v.option.WSOpts.V2rayHttpUpgradeFastOpen &&
+		v.option.Flow == "" && v.encryption == nil && v.shadowTLSConfig == nil && v.restlsConfig == nil && v.jlsConfig == nil {
+		probestage.Begin(ctx)
+	}
 	c, err := v.dialContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
