@@ -127,7 +127,13 @@ func applyConfig(cfg *config.Config, force, requireTun bool) error {
 	loadProvider(cfg.Providers)
 	updateProfile(cfg)
 	loadProvider(cfg.RuleProviders)
-	runtime.GC()
+	// A synchronous collection here held StartCore until the sweep of the
+	// config parse finished, so every connect waited on the GC. The iOS
+	// packet-tunnel extension stays near its jetsam line and still collects
+	// before returning. Other platforms leave that sweep to the normal GC.
+	if runtime.GOOS == "ios" {
+		runtime.GC()
+	}
 	tunnel.OnRunning()
 	updateUpdater(cfg)
 
