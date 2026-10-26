@@ -207,6 +207,14 @@ func strategyStickySessions(url string) strategyFn {
 			}
 		}
 
+		// Random retries can repeatedly miss the only healthy member.
+		for index, proxy := range proxies {
+			if proxy.AliveForTestUrl(url) {
+				lruCache.Set(key, index)
+				return proxy
+			}
+		}
+
 		lruCache.Set(key, 0)
 		return proxies[0]
 	}

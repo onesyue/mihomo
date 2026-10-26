@@ -104,19 +104,20 @@ func (f *Fallback) Unwrap(metadata *C.Metadata, touch bool) C.Proxy {
 
 func (f *Fallback) findAliveProxy(touch bool) C.Proxy {
 	proxies := f.GetProxies(touch)
-	for _, proxy := range proxies {
-		if len(f.selected) == 0 {
-			if proxy.AliveForTestUrl(f.testUrl) {
-				return proxy
-			}
-		} else {
+	if f.selected != "" {
+		for _, proxy := range proxies {
 			if proxy.Name() == f.selected {
 				if proxy.AliveForTestUrl(f.testUrl) {
 					return proxy
-				} else {
-					f.selected = ""
 				}
+				break
 			}
+		}
+		f.selected = ""
+	}
+	for _, proxy := range proxies {
+		if proxy.AliveForTestUrl(f.testUrl) {
+			return proxy
 		}
 	}
 
