@@ -20,7 +20,7 @@ type URLTestOption struct {
 
 type URLTest struct {
 	*GroupBase
-	selected       string
+	automaticSelection
 	testUrl        string
 	expectedStatus string
 	tolerance      uint16
@@ -49,7 +49,7 @@ func (u *URLTest) Set(name string) error {
 }
 
 func (u *URLTest) ForceSet(name string) {
-	u.selected = name
+	u.automaticSelection.setSelected(name)
 	u.fastSingle.Reset()
 }
 
@@ -102,6 +102,8 @@ func (u *URLTest) healthCheck() {
 
 func (u *URLTest) fast(touch bool) C.Proxy {
 	elm, _, shared := u.fastSingle.Do(func() (C.Proxy, error) {
+		u.automaticSelection.mu.Lock()
+		defer u.automaticSelection.mu.Unlock()
 		proxies := u.GetProxies(touch)
 		if u.selected != "" {
 			for _, proxy := range proxies {
@@ -112,6 +114,13 @@ func (u *URLTest) fast(touch bool) C.Proxy {
 					u.fastNode = proxy
 					return proxy, nil
 				}
+			}
+		}
+
+		if u.fastNode == nil || !proxyPresent(proxies, u.fastNode) || !u.fastNode.AliveForTestUrl(u.testUrl) {
+			if advised := u.automaticSelection.advised(proxies, u.testUrl); advised != nil {
+				u.fastNode = advised
+				return advised, nil
 			}
 		}
 
@@ -173,7 +182,7 @@ func (u *URLTest) MarshalJSON() ([]byte, error) {
 		"all":            all,
 		"testUrl":        u.testUrl,
 		"expectedStatus": u.expectedStatus,
-		"fixed":          u.selected,
+		"fixed":          u.automaticSelection.selectedName(),
 		"hidden":         u.Hidden(),
 		"icon":           u.Icon(),
 		"emptyFallback":  u.EmptyFallback().Name(),
@@ -197,6 +206,7 @@ func NewURLTest(option GroupCommonOption, urlTestOption URLTestOption, emptyFall
 		return nil, errors.New("empty fallback proxy not exist")
 	}
 	urlTest := &URLTest{
+		automaticSelection: newAutomaticSelection(),
 		GroupBase: NewGroupBase(GroupBaseOption{
 			Name:           option.Name,
 			Type:           C.URLTest,

@@ -216,6 +216,14 @@ func Proxies() map[string]C.Proxy {
 	return proxies
 }
 
+// GetProxy returns a proxy from the current immutable configuration snapshot.
+func GetProxy(name string) (C.Proxy, bool) {
+	configMux.RLock()
+	defer configMux.RUnlock()
+	proxy, ok := proxies[name]
+	return proxy, ok
+}
+
 // Providers return all compatible providers
 func Providers() map[string]P.ProxyProvider {
 	return providers
