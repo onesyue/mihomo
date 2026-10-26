@@ -31,10 +31,10 @@ func (f *Fallback) Now() string {
 // DialContext implements C.ProxyAdapter
 func (f *Fallback) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
 	proxy := f.findAliveProxy(true)
-	c, err := proxy.DialContext(ctx, metadata)
+	c, err, proxy := f.automaticSelection.dialWithRecovery(ctx, metadata, proxy, func() []C.Proxy { return f.GetProxies(false) }, f.testUrl)
 	if err == nil {
 		c.AppendToChains(f)
-	} else {
+	} else if !errors.Is(err, errRecoveryInterrupted) {
 		f.onDialFailed(proxy.Type(), err, f.healthCheck)
 	}
 
@@ -179,7 +179,7 @@ func (f *Fallback) Proxies() []C.Proxy {
 
 func NewFallback(option GroupCommonOption, fallbackOption FallbackOption, emptyFallback C.Proxy, providers []P.ProxyProvider) (*Fallback, error) {
 	return &Fallback{
-		automaticSelection: newAutomaticSelection(),
+		automaticSelection: newAutomaticSelection(option.AdvisoryRetry),
 		GroupBase: NewGroupBase(GroupBaseOption{
 			Name:           option.Name,
 			Type:           C.Fallback,

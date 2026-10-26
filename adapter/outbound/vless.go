@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/metacubex/mihomo/common/dialattempt"
 	"net"
 	"net/netip"
 	"strconv"
@@ -354,6 +355,13 @@ func (v *Vless) dialContext(ctx context.Context) (c net.Conn, err error) {
 	return v.dialer.DialContext(ctx, "tcp", v.addr)
 }
 
+// SupportsSafeDialRetry excludes transport wrappers and fast-open paths. The
+// only marked error below is the native TCP connect failing before TLS/Reality
+// or VLESS framing starts; later handshake/first-write failures stay unmarked.
+func (v *Vless) SupportsSafeDialRetry() bool {
+	return (v.option.Network == "" || v.option.Network == "tcp") && !v.option.TFO && !v.option.MPTCP && v.option.DialerProxy == "" && v.option.DialerForAPI == nil
+}
+
 // DialContext implements C.ProxyAdapter
 func (v *Vless) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
 	// Only this eager transport has all four observable boundaries. Lazy,
@@ -365,7 +373,11 @@ func (v *Vless) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn
 	}
 	c, err := v.dialContext(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
+		failure := fmt.Errorf("%s connect error: %w", v.addr, err)
+		if v.SupportsSafeDialRetry() {
+			failure = dialattempt.BeforeApplicationData(failure)
+		}
+		return nil, failure
 	}
 	defer func(c net.Conn) {
 		safeConnClose(c, err)

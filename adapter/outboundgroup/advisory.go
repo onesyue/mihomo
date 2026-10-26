@@ -50,18 +50,22 @@ type AdvisoryGroup interface {
 }
 
 type automaticSelection struct {
-	mu         sync.Mutex
-	revision   string
-	generation uint64
-	selected   string
-	manual     bool
-	lease      *AdvisoryLease
-	members    []C.Proxy
-	incumbent  C.Proxy
+	mu           sync.Mutex
+	revision     string
+	generation   uint64
+	selected     string
+	manual       bool
+	lease        *AdvisoryLease
+	members      []C.Proxy
+	incumbent    C.Proxy
+	retryEnabled bool
+	retired      bool
+	leaseContext context.Context
+	cancelLease  context.CancelFunc
 }
 
-func newAutomaticSelection() automaticSelection {
-	return automaticSelection{revision: utils.NewUUIDV4().String()}
+func newAutomaticSelection(retryEnabled bool) automaticSelection {
+	return automaticSelection{revision: utils.NewUUIDV4().String(), retryEnabled: retryEnabled}
 }
 
 func (s *automaticSelection) setSelected(name string) {
@@ -70,7 +74,28 @@ func (s *automaticSelection) setSelected(name string) {
 	s.generation++
 	s.selected = name
 	s.manual = name != ""
+	s.invalidateLeaseLocked()
+}
+
+// Only in-flight optional dials observe this context. Returned user streams
+// have detached their cancellation callback and are never closed here.
+func (s *automaticSelection) invalidateLeaseLocked() {
+	if s.cancelLease != nil {
+		s.cancelLease()
+		s.cancelLease = nil
+	}
+	s.leaseContext = nil
 	s.lease, s.members = nil, nil
+}
+
+// RetireAdvisory is called at proxy publication when this group is replaced.
+// It cancels optional in-flight attempts without closing returned streams.
+func (s *automaticSelection) RetireAdvisory() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.retired = true
+	s.generation++
+	s.invalidateLeaseLocked()
 }
 
 func (s *automaticSelection) selectedName() string {
@@ -92,7 +117,7 @@ func (s *automaticSelection) advisory() AdvisoryStatus {
 }
 
 func (s *automaticSelection) active(now time.Time) bool {
-	return !s.manual && s.lease != nil && now.Before(time.Unix(s.lease.ExpiresAt, 0))
+	return !s.retired && !s.manual && s.lease != nil && now.Before(time.Unix(s.lease.ExpiresAt, 0))
 }
 
 func (s *automaticSelection) setAdvisory(ctx context.Context, lease AdvisoryLease, proxies []C.Proxy) error {
@@ -101,13 +126,13 @@ func (s *automaticSelection) setAdvisory(ctx context.Context, lease AdvisoryLeas
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if lease.Revision != s.revision {
+	if s.retired || lease.Revision != s.revision {
 		return ErrAdvisoryRevision
 	}
 	if s.manual {
 		return ErrAdvisoryManual
 	}
-	if lease.Retry {
+	if lease.Retry && !s.retryEnabled {
 		return ErrAdvisoryRetryDisabled
 	}
 	if lease.ExpectedGeneration != s.generation {
@@ -153,6 +178,10 @@ func (s *automaticSelection) setAdvisory(ctx context.Context, lease AdvisoryLeas
 		return err
 	}
 	s.generation++
+	s.invalidateLeaseLocked()
+	if lease.Retry {
+		s.leaseContext, s.cancelLease = context.WithDeadline(context.WithoutCancel(ctx), expires)
+	}
 	s.lease, s.members = &lease, members
 	return nil
 }
@@ -167,7 +196,7 @@ func (s *automaticSelection) clearAdvisory(revision, scope string, expectedGener
 		return errors.New("advisory scope is required")
 	}
 	if s.lease != nil && s.lease.Scope == scope && s.lease.ExpectedGeneration == expectedGeneration {
-		s.lease, s.members = nil, nil
+		s.invalidateLeaseLocked()
 		s.generation++
 		return nil
 	}

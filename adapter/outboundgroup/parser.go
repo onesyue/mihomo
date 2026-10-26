@@ -33,6 +33,7 @@ type GroupCommonOption struct {
 	MaxFailedTimes      int      `group:"max-failed-times,omitempty"`
 	EmptyFallback       string   `group:"empty-fallback,omitempty"`
 	Lazy                bool     `group:"lazy,omitempty"`
+	AdvisoryRetry       bool     `group:"advisory-retry,omitempty"`
 	DisableUDP          bool     `group:"disable-udp,omitempty"`
 	Filter              string   `group:"filter,omitempty"`
 	ExcludeFilter       string   `group:"exclude-filter,omitempty"`

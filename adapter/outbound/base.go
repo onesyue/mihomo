@@ -381,6 +381,13 @@ func (p *autoCloseProxyAdapter) ListenPacketContext(ctx context.Context, metadat
 	return pc, nil
 }
 
+// SupportsSafeDialRetry forwards only an explicit underlying adapter proof.
+// Multiplexing/transport wrappers that do not implement it remain unsupported.
+func (p *autoCloseProxyAdapter) SupportsSafeDialRetry() bool {
+	proof, ok := p.ProxyAdapter.(interface{ SupportsSafeDialRetry() bool })
+	return ok && proof.SupportsSafeDialRetry()
+}
+
 func (p *autoCloseProxyAdapter) Close() error {
 	p.closeOnce.Do(func() {
 		log.Debugln("Closing outdated proxy [%s]", p.Name())

@@ -56,10 +56,10 @@ func (u *URLTest) ForceSet(name string) {
 // DialContext implements C.ProxyAdapter
 func (u *URLTest) DialContext(ctx context.Context, metadata *C.Metadata) (c C.Conn, err error) {
 	proxy := u.fast(true)
-	c, err = proxy.DialContext(ctx, metadata)
+	c, err, proxy = u.automaticSelection.dialWithRecovery(ctx, metadata, proxy, func() []C.Proxy { return u.GetProxies(false) }, u.testUrl)
 	if err == nil {
 		c.AppendToChains(u)
-	} else {
+	} else if !errors.Is(err, errRecoveryInterrupted) {
 		u.onDialFailed(proxy.Type(), err, u.healthCheck)
 	}
 
@@ -206,7 +206,7 @@ func NewURLTest(option GroupCommonOption, urlTestOption URLTestOption, emptyFall
 		return nil, errors.New("empty fallback proxy not exist")
 	}
 	urlTest := &URLTest{
-		automaticSelection: newAutomaticSelection(),
+		automaticSelection: newAutomaticSelection(option.AdvisoryRetry),
 		GroupBase: NewGroupBase(GroupBaseOption{
 			Name:           option.Name,
 			Type:           C.URLTest,
