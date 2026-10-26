@@ -256,11 +256,9 @@ func updateNTP(c *config.NTP) {
 
 func updateDNS(c *config.DNS, generalIPv6 bool) {
 	if !c.Enable {
-		resolver.DefaultResolver = nil
+		resolver.PublishDNSResolvers(nil, nil, nil)
 		resolver.DefaultHostMapper = nil
 		resolver.DefaultService = nil
-		resolver.ProxyServerHostResolver = nil
-		resolver.DirectHostResolver = nil
 		dns.ReCreateServer("", nil, nil)
 		return
 	}
@@ -300,22 +298,20 @@ func updateDNS(c *config.DNS, generalIPv6 bool) {
 
 	s := dns.NewService(r, m)
 
-	resolver.DefaultResolver = r
 	resolver.DefaultHostMapper = m
 	resolver.DefaultService = s
 	resolver.UseSystemHosts = c.UseSystemHosts
 
+	proxyResolver := r.Resolver
 	if r.ProxyResolver.Invalid() {
-		resolver.ProxyServerHostResolver = r.ProxyResolver
-	} else {
-		resolver.ProxyServerHostResolver = r.Resolver
+		proxyResolver = r.ProxyResolver
 	}
 
+	directResolver := r.Resolver
 	if r.DirectResolver.Invalid() {
-		resolver.DirectHostResolver = r.DirectResolver
-	} else {
-		resolver.DirectHostResolver = r.Resolver
+		directResolver = r.DirectResolver
 	}
+	resolver.PublishDNSResolvers(r, proxyResolver, directResolver)
 
 	lc := inbound.NewListenConfig()
 	lc.SetRouteMark(c.ListenRoutingMark)
