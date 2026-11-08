@@ -188,6 +188,11 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 	}
 
 	tlsClientConfig := tlsConfig
+	// sing-quic always requests an early dial. The cache is what lets the next
+	// connection send 0-RTT. One entry is enough: this outbound has one server.
+	if tlsClientConfig.ClientSessionCache == nil {
+		tlsClientConfig.ClientSessionCache = tls.NewLRUClientSessionCache(1)
+	}
 	echConfig, err := option.ECHOpts.Parse()
 	if err != nil {
 		return nil, err
