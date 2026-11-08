@@ -212,6 +212,12 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 		MaxStreamReceiveWindow:         option.MaxStreamReceiveWindow,
 		InitialConnectionReceiveWindow: option.InitialConnectionReceiveWindow,
 		MaxConnectionReceiveWindow:     option.MaxConnectionReceiveWindow,
+		// Negotiated idle timeout is the minimum of both peers. sing-quic
+		// fills a zero with 30s, which drops the session after a few lost
+		// 10s probes. 120s is Hysteria's ceiling. KeepAlivePeriod matches
+		// the library default so the client still PINGs if that fill changes.
+		MaxIdleTimeout:  120 * time.Second,
+		KeepAlivePeriod: 10 * time.Second,
 	}
 
 	clientOptions := hysteria2.ClientOptions{
