@@ -74,6 +74,9 @@ func (s *Ssh) connect(ctx context.Context, addr string) (client *ssh.Client, err
 		defer done(&err)
 	}
 
+	// A transport write failure is cached by SSH without closing the connection.
+	// Close it so Wait can evict the unusable client and the next dial reconnects.
+	c = closeOnWriteErrorConn{Conn: c}
 	clientConn, chans, reqs, err := ssh.NewClientConn(c, addr, s.config)
 	if err != nil {
 		return nil, err
@@ -93,6 +96,18 @@ func (s *Ssh) connect(ctx context.Context, addr string) (client *ssh.Client, err
 	}()
 
 	return client, nil
+}
+
+type closeOnWriteErrorConn struct {
+	net.Conn
+}
+
+func (c closeOnWriteErrorConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if err != nil {
+		_ = c.Conn.Close()
+	}
+	return n, err
 }
 
 // ProxyInfo implements C.ProxyAdapter
