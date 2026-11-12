@@ -131,7 +131,7 @@ func getProxyDelay(w http.ResponseWriter, r *http.Request) {
 	ctx, stages := probestage.New(ctx)
 	delay, err := proxy.URLTest(ctx, url, expectedStatus)
 	if err != nil || delay == 0 || ctx.Err() != nil {
-		w.Header().Set("X-Yue-Probe-Failure-Stage", stages.FailureStage())
+		w.Header().Set("X-Yue-Probe-Failure-Stage", classifyProbeFailure(stages.FailureStage(), err))
 	}
 	if ctx.Err() != nil {
 		render.Status(r, http.StatusGatewayTimeout)
