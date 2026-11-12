@@ -24,6 +24,17 @@ func (h *ResolverEnhancer) FakeIPEnabled() bool {
 	return h.mode == C.DNSFakeIP
 }
 
+// Mode is the enhanced-mode this enhancer was created with.
+func (h *ResolverEnhancer) Mode() C.DNSMode {
+	return h.mode
+}
+
+// IPv6 reports whether this enhancer resolves AAAA. It is the dns.ipv6 flag
+// combined with the top-level ipv6 flag at the moment DNS was applied.
+func (h *ResolverEnhancer) IPv6() bool {
+	return h.ipv6
+}
+
 func (h *ResolverEnhancer) MappingEnabled() bool {
 	return h.mode == C.DNSFakeIP || h.mode == C.DNSMapping
 }

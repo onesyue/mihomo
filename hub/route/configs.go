@@ -130,8 +130,7 @@ type tuicServerSchema struct {
 }
 
 func getConfigs(w http.ResponseWriter, r *http.Request) {
-	general := executor.GetGeneral()
-	render.JSON(w, r, general)
+	render.JSON(w, r, executor.CurrentConfigView())
 }
 
 func pointerOrDefault[T any](p *T, def T) T {

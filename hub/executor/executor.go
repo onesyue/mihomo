@@ -202,6 +202,40 @@ func GetGeneral() *config.General {
 	return general
 }
 
+// RunningDNS is the DNS enhancer currently installed, not the last file
+// that was parsed. A nil mapper means DNS is disabled.
+type RunningDNS struct {
+	Enable       bool   `json:"enable"`
+	EnhancedMode string `json:"enhanced-mode"`
+	IPv6         bool   `json:"ipv6"`
+}
+
+// RunningDNSStatus reads the live enhancer. The IPv6 bit is effective:
+// dns.ipv6 AND the top-level ipv6 flag from the apply that installed it.
+func RunningDNSStatus() RunningDNS {
+	mapper := resolver.DefaultHostMapper
+	enhancer, ok := mapper.(*dns.ResolverEnhancer)
+	if !ok || enhancer == nil {
+		return RunningDNS{EnhancedMode: C.DNSNormal.String()}
+	}
+	return RunningDNS{
+		Enable:       true,
+		EnhancedMode: enhancer.Mode().String(),
+		IPv6:         enhancer.IPv6(),
+	}
+}
+
+// ConfigView is the GET /configs body: general fields plus the running DNS.
+type ConfigView struct {
+	*config.General
+	DNS RunningDNS `json:"dns"`
+}
+
+// CurrentConfigView snapshots general and DNS for the external controller.
+func CurrentConfigView() ConfigView {
+	return ConfigView{General: GetGeneral(), DNS: RunningDNSStatus()}
+}
+
 func updateListeners(general *config.General, listeners map[string]C.InboundListener, force bool) {
 	listener.PatchInboundListeners(listeners, tunnel.Tunnel, true)
 	if !force {
