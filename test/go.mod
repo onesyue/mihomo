@@ -163,7 +163,7 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/metacubex/sing-tun => github.com/onesyue/sing-tun v0.4.24-0.20261111091024-3c1961e86d00
+replace github.com/metacubex/sing-tun => github.com/onesyue/sing-tun v0.4.23-yue.9
 
 replace github.com/metacubex/gvisor => github.com/onesyue/gvisor v0.0.0-20260910093417-fbc2bdba72a8
 
