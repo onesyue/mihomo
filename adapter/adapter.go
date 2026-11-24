@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	stdatomic "sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/common/atomic"
@@ -42,8 +43,9 @@ type Proxy struct {
 	urlTests  map[urlTestKey]*urlTestFlight
 
 	// urlTestWriteMu serializes DelayHistory/alive commits with generation
-	// checks. Lock order: never hold flight.mu while acquiring urlTestMu or
-	// urlTestWriteMu; never hold urlTestWriteMu while acquiring urlTestMu.
+	// checks. Lock order: acquire urlTestWriteMu before flight.mu; never hold
+	// flight.mu while acquiring urlTestMu or urlTestWriteMu; never hold
+	// urlTestWriteMu while acquiring urlTestMu.
 	urlTestWriteMu      sync.Mutex
 	urlTestSeq          uint64
 	urlTestGlobalCommit uint64
@@ -266,12 +268,30 @@ func (p *Proxy) doURLTest(ctx context.Context, url string, expectedStatus utils.
 	return
 }
 
+// Test-only commit hooks. Production leaves these nil. They must not be
+// part of the public API. Stored atomically so tests can install them
+// without racing leftover commits from other tests in the same package.
+//
+// urlTestAfterAbandonedSample is retained for tests that script the old
+// stale-snapshot window (sample, drop flight.mu, then take the write lock).
+// The production path must not call it.
+// urlTestAfterCommitLocked runs once urlTestWriteMu is held and the
+// snapshot that will govern the write has been taken under that lock.
+type urlTestCommitHook func(p *Proxy, flight *urlTestFlight, seq uint64)
+
+var (
+	urlTestAfterAbandonedSample stdatomic.Pointer[urlTestCommitHook]
+	urlTestAfterCommitLocked    stdatomic.Pointer[urlTestCommitHook]
+)
+
 // commitURLTestResult publishes DelayHistory and alive for one finished
 // doURLTest generation. A still-current flight always writes (concurrent
 // distinct-URL probes keep last-writer-wins). An abandoned flight writes
 // only when no newer generation has already committed the relevant state,
 // so a late cancel cannot clobber a newer success, while a cancelled
-// probe with no replacement remains observable.
+// probe with no replacement remains observable. The abandoned/seq
+// snapshot is taken under urlTestWriteMu so the check and write are
+// one critical section.
 func (p *Proxy) commitURLTestResult(flight *urlTestFlight, url string, t uint16, err error, satisfied bool) {
 	alive := err == nil
 	record := C.DelayHistory{Time: time.Now()}
@@ -279,13 +299,20 @@ func (p *Proxy) commitURLTestResult(flight *urlTestFlight, url string, t uint16,
 		record.Delay = t
 	}
 
+	// Take the write lock before reading abandoned/seq so a concurrent
+	// release plus newer commit cannot publish between the snapshot and
+	// this write. flight.mu is acquired only while urlTestWriteMu is held.
+	p.urlTestWriteMu.Lock()
+	defer p.urlTestWriteMu.Unlock()
+
 	flight.mu.Lock()
 	abandoned := flight.abandoned
 	seq := flight.seq
 	flight.mu.Unlock()
 
-	p.urlTestWriteMu.Lock()
-	defer p.urlTestWriteMu.Unlock()
+	if fn := urlTestAfterCommitLocked.Load(); fn != nil {
+		(*fn)(p, flight, seq)
+	}
 
 	if p.urlTestCommit == nil {
 		p.urlTestCommit = make(map[string]uint64)
