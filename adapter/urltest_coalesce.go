@@ -23,6 +23,7 @@ type urlTestFlight struct {
 	done chan struct{}
 	t    uint16
 	err  error
+	seq  uint64
 
 	mu         sync.Mutex
 	waiters    int
@@ -61,18 +62,20 @@ func (p *Proxy) startFlightLocked(ctx context.Context, key urlTestKey, url strin
 	base := context.WithoutCancel(ctx)
 	sharedCtx, shared := probestage.StartShared(base)
 	workCtx, cancel := context.WithCancel(sharedCtx)
+	p.urlTestSeq++
 	flight := &urlTestFlight{
 		done:       make(chan struct{}),
 		waiters:    1,
 		cancelWork: cancel,
 		shared:     shared,
+		seq:        p.urlTestSeq,
 	}
 	flight.mu.Lock()
 	flight.trackLocked(ctx)
 	flight.mu.Unlock()
 	p.urlTests[key] = flight
 	go func() {
-		t, err := p.doURLTest(workCtx, url, expectedStatus)
+		t, err := p.doURLTest(workCtx, url, expectedStatus, flight)
 		flight.t = t
 		flight.err = err
 		p.urlTestMu.Lock()

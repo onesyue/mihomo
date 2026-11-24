@@ -40,6 +40,14 @@ type Proxy struct {
 
 	urlTestMu sync.Mutex
 	urlTests  map[urlTestKey]*urlTestFlight
+
+	// urlTestWriteMu serializes DelayHistory/alive commits with generation
+	// checks. Lock order: never hold flight.mu while acquiring urlTestMu or
+	// urlTestWriteMu; never hold urlTestWriteMu while acquiring urlTestMu.
+	urlTestWriteMu      sync.Mutex
+	urlTestSeq          uint64
+	urlTestGlobalCommit uint64
+	urlTestCommit       map[string]uint64
 }
 
 // Adapter implements C.Proxy
@@ -165,39 +173,11 @@ func (p *Proxy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(mapping)
 }
 
-func (p *Proxy) doURLTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16]) (t uint16, err error) {
+func (p *Proxy) doURLTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16], flight *urlTestFlight) (t uint16, err error) {
 	var satisfied bool
 
 	defer func() {
-		alive := err == nil
-		record := C.DelayHistory{Time: time.Now()}
-		if alive {
-			record.Delay = t
-		}
-
-		p.alive.Store(alive)
-		p.history.Put(record)
-		if p.history.Len() > defaultHistoriesNum {
-			p.history.Pop()
-		}
-
-		state, _ := p.extra.LoadOrStoreFn(url, func() *internalProxyState {
-			return &internalProxyState{
-				history: queue.New[C.DelayHistory](defaultHistoriesNum),
-				alive:   atomic.NewBool(true),
-			}
-		})
-
-		if !satisfied {
-			record.Delay = 0
-			alive = false
-		}
-
-		state.alive.Store(alive)
-		state.history.Put(record)
-		if state.history.Len() > defaultHistoriesNum {
-			state.history.Pop()
-		}
+		p.commitURLTestResult(flight, url, t, err, satisfied)
 	}()
 
 	unifiedDelay := UnifiedDelay.Load()
@@ -284,6 +264,71 @@ func (p *Proxy) doURLTest(ctx context.Context, url string, expectedStatus utils.
 		t = 1
 	}
 	return
+}
+
+// commitURLTestResult publishes DelayHistory and alive for one finished
+// doURLTest generation. A still-current flight always writes (concurrent
+// distinct-URL probes keep last-writer-wins). An abandoned flight writes
+// only when no newer generation has already committed the relevant state,
+// so a late cancel cannot clobber a newer success, while a cancelled
+// probe with no replacement remains observable.
+func (p *Proxy) commitURLTestResult(flight *urlTestFlight, url string, t uint16, err error, satisfied bool) {
+	alive := err == nil
+	record := C.DelayHistory{Time: time.Now()}
+	if alive {
+		record.Delay = t
+	}
+
+	flight.mu.Lock()
+	abandoned := flight.abandoned
+	seq := flight.seq
+	flight.mu.Unlock()
+
+	p.urlTestWriteMu.Lock()
+	defer p.urlTestWriteMu.Unlock()
+
+	if p.urlTestCommit == nil {
+		p.urlTestCommit = make(map[string]uint64)
+	}
+
+	writeGlobal := !abandoned || p.urlTestGlobalCommit < seq
+	writeURL := !abandoned || p.urlTestCommit[url] < seq
+	if !writeGlobal && !writeURL {
+		return
+	}
+
+	if writeGlobal {
+		p.alive.Store(alive)
+		p.history.Put(record)
+		if p.history.Len() > defaultHistoriesNum {
+			p.history.Pop()
+		}
+		if seq > p.urlTestGlobalCommit {
+			p.urlTestGlobalCommit = seq
+		}
+	}
+
+	if !satisfied {
+		record.Delay = 0
+		alive = false
+	}
+
+	if writeURL {
+		state, _ := p.extra.LoadOrStoreFn(url, func() *internalProxyState {
+			return &internalProxyState{
+				history: queue.New[C.DelayHistory](defaultHistoriesNum),
+				alive:   atomic.NewBool(true),
+			}
+		})
+		state.alive.Store(alive)
+		state.history.Put(record)
+		if state.history.Len() > defaultHistoriesNum {
+			state.history.Pop()
+		}
+		if seq > p.urlTestCommit[url] {
+			p.urlTestCommit[url] = seq
+		}
+	}
 }
 
 func NewProxy(adapter C.ProxyAdapter) *Proxy {
