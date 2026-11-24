@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/metacubex/mihomo/common/atomic"
@@ -36,6 +37,9 @@ type Proxy struct {
 	alive   atomic.Bool
 	history *queue.Queue[C.DelayHistory]
 	extra   xsync.Map[string, *internalProxyState]
+
+	urlTestMu sync.Mutex
+	urlTests  map[urlTestKey]*urlTestFlight
 }
 
 // Adapter implements C.Proxy
@@ -161,9 +165,7 @@ func (p *Proxy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(mapping)
 }
 
-// URLTest get the delay for the specified URL
-// implements C.Proxy
-func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16]) (t uint16, err error) {
+func (p *Proxy) doURLTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16]) (t uint16, err error) {
 	var satisfied bool
 
 	defer func() {
@@ -196,7 +198,6 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 		if state.history.Len() > defaultHistoriesNum {
 			state.history.Pop()
 		}
-
 	}()
 
 	unifiedDelay := UnifiedDelay.Load()
@@ -249,7 +250,6 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 	defer client.CloseIdleConnections()
 
 	resp, err := client.Do(req)
-
 	if err != nil {
 		return
 	}
