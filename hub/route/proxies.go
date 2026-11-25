@@ -2,11 +2,14 @@ package route
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/metacubex/mihomo/adapter/outboundgroup"
+	"github.com/metacubex/mihomo/common/probestage"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/component/profile/cachefile"
 	C "github.com/metacubex/mihomo/constant"
@@ -29,6 +32,9 @@ func proxyRouter() http.Handler {
 		r.Use(parseProxyName, findProxyByName)
 		r.Get("/", getProxy)
 		r.Get("/delay", getProxyDelay)
+		r.Get("/advisory", getProxyAdvisory)
+		r.Put("/advisory", putProxyAdvisory)
+		r.Delete("/advisory", deleteProxyAdvisory)
 		r.Put("/", updateProxy)
 		r.Delete("/", unfixedProxy)
 	})
@@ -46,8 +52,7 @@ func parseProxyName(next http.Handler) http.Handler {
 func findProxyByName(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := r.Context().Value(CtxKeyProxyName).(string)
-		proxies := tunnel.Proxies()
-		proxy, exist := proxies[name]
+		proxy, exist := tunnel.GetProxy(name)
 		if !exist {
 			render.Status(r, http.StatusNotFound)
 			render.JSON(w, r, ErrNotFound)
@@ -68,7 +73,61 @@ func getProxies(w http.ResponseWriter, r *http.Request) {
 
 func getProxy(w http.ResponseWriter, r *http.Request) {
 	proxy := r.Context().Value(CtxKeyProxy).(C.Proxy)
+	if selector, ok := proxy.Adapter().(*outboundgroup.Selector); ok && isSelectionResource(r) {
+		revision := selector.SelectionRevision()
+		w.Header().Set("ETag", selectorETag(revision))
+		w.Header().Set("Cache-Control", "no-store")
+		render.JSON(w, r, render.M{"name": proxy.Name(), "revision": revision})
+		return
+	}
 	render.JSON(w, r, proxy)
+}
+
+func isSelectionResource(r *http.Request) bool {
+	return r.URL.Query().Get("yuelink-selection") == "1"
+}
+
+func selectorETag(revision string) string { return `"yue-selector-` + revision + `"` }
+
+// Accept strong entity tags and the existence wildcard. Weak tags never satisfy
+// If-Match. Quoted entity tags may contain commas, so compare whole elements.
+func matchesSelectorETag(values []string, current string) bool {
+	value := strings.TrimSpace(strings.Join(values, ","))
+	if value == "*" {
+		return true
+	}
+	matched := false
+	for value != "" {
+		if value[0] == ',' {
+			value = strings.TrimSpace(value[1:])
+			continue
+		}
+		weak := strings.HasPrefix(value, "W/")
+		if weak {
+			value = value[2:]
+		}
+		if len(value) < 2 || value[0] != '"' {
+			return false
+		}
+		end := strings.IndexByte(value[1:], '"')
+		if end < 0 {
+			return false
+		}
+		end += 2
+		for i := 1; i < end-1; i++ {
+			if value[i] < 0x21 || value[i] == 0x7f {
+				return false
+			}
+		}
+		if !weak && value[:end] == current {
+			matched = true
+		}
+		value = strings.TrimSpace(value[end:])
+		if value != "" && value[0] != ',' {
+			return false
+		}
+	}
+	return matched
 }
 
 func updateProxy(w http.ResponseWriter, r *http.Request) {
@@ -89,13 +148,46 @@ func updateProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := selector.Set(req.Name); err != nil {
+	save := func() { cachefile.Cache().SetSelected(proxy.Name(), req.Name) }
+	scoped := isSelectionResource(r)
+	var conditions []string
+	if scoped {
+		if _, ok := selector.(*outboundgroup.Selector); !ok {
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, newError("Must be a Selector"))
+			return
+		}
+		conditions = r.Header.Values("If-Match")
+		if len(conditions) == 0 {
+			render.Status(r, http.StatusPreconditionRequired)
+			render.JSON(w, r, newError("If-Match required"))
+			return
+		}
+	}
+	var err error
+	if fixed, ok := selector.(*outboundgroup.Selector); ok {
+		var matches func(string) bool
+		if len(conditions) > 0 {
+			matches = func(rev string) bool { return matchesSelectorETag(conditions, selectorETag(rev)) }
+		}
+		var revision string
+		revision, err = fixed.UpdateSelection(req.Name, matches, save)
+		if scoped && err == nil {
+			w.Header().Set("ETag", selectorETag(revision))
+		}
+	} else if err = selector.Set(req.Name); err == nil {
+		save()
+	}
+	if errors.Is(err, outboundgroup.ErrSelectionChanged) {
+		render.Status(r, http.StatusPreconditionFailed)
+		render.JSON(w, r, newError("Selector revision changed"))
+		return
+	}
+	if err != nil {
 		render.Status(r, http.StatusBadRequest)
 		render.JSON(w, r, newError(fmt.Sprintf("Selector update error: %s", err.Error())))
 		return
 	}
-
-	cachefile.Cache().SetSelected(proxy.Name(), req.Name)
 	if SwitchProxiesCallback != nil {
 		// refresh tray menu
 		go SwitchProxiesCallback(proxy.Name(), req.Name)
@@ -125,7 +217,11 @@ func getProxyDelay(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 	defer cancel()
 
+	ctx, stages := probestage.New(ctx)
 	delay, err := proxy.URLTest(ctx, url, expectedStatus)
+	if err != nil || delay == 0 || ctx.Err() != nil {
+		w.Header().Set("X-Yue-Probe-Failure-Stage", classifyProbeFailure(stages.FailureStage(), err))
+	}
 	if ctx.Err() != nil {
 		render.Status(r, http.StatusGatewayTimeout)
 		render.JSON(w, r, ErrRequestTimeout)

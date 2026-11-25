@@ -62,6 +62,7 @@ type Hysteria2Option struct {
 	BBRProfile        string     `proxy:"bbr-profile,omitempty"`
 	UdpMTU            int        `proxy:"udp-mtu,omitempty"`
 	HandshakeTimeout  int        `proxy:"handshake-timeout,omitempty"`
+	YueConnTag        bool       `proxy:"yue-conn-tag,omitempty"`
 
 	RealmOpts Hysteria2RealmOption `proxy:"realm-opts,omitempty"`
 
@@ -187,6 +188,11 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 	}
 
 	tlsClientConfig := tlsConfig
+	// sing-quic always requests an early dial. The cache is what lets the next
+	// connection send 0-RTT. One entry is enough: this outbound has one server.
+	if tlsClientConfig.ClientSessionCache == nil {
+		tlsClientConfig.ClientSessionCache = tls.NewLRUClientSessionCache(1)
+	}
 	echConfig, err := option.ECHOpts.Parse()
 	if err != nil {
 		return nil, err
@@ -199,10 +205,19 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 	}
 
 	quicConfig := &quic.Config{
+		// RFC 9000 minimum: allow a 1280-byte path with obfuscation overhead.
+		// Native PMTUD can increase the datagram size after the handshake.
+		InitialPacketSize:              1200,
 		InitialStreamReceiveWindow:     option.InitialStreamReceiveWindow,
 		MaxStreamReceiveWindow:         option.MaxStreamReceiveWindow,
 		InitialConnectionReceiveWindow: option.InitialConnectionReceiveWindow,
 		MaxConnectionReceiveWindow:     option.MaxConnectionReceiveWindow,
+		// Negotiated idle timeout is the minimum of both peers. sing-quic
+		// fills a zero with 30s, which drops the session after a few lost
+		// 10s probes. 120s is Hysteria's ceiling. KeepAlivePeriod matches
+		// the library default so the client still PINGs if that fill changes.
+		MaxIdleTimeout:  120 * time.Second,
+		KeepAlivePeriod: 10 * time.Second,
 	}
 
 	clientOptions := hysteria2.ClientOptions{
@@ -214,7 +229,7 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 		GeckoPassword:      geckoPassword,
 		GeckoMinPacketSize: geckoMinPacketSize,
 		GeckoMaxPacketSize: geckoMaxPacketSize,
-		Password:           option.Password,
+		Password:           yueHysteria2Password(option.Password, option.YueConnTag),
 		TLSConfig:          tlsClientConfig,
 		QUICConfig:         quicConfig,
 		UDPDisabled:        false,

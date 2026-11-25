@@ -496,6 +496,12 @@ func ReCreateMixed(port int, tunnel C.Tunnel) {
 }
 
 func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
+	_ = ReCreateTunWithResult(tunConf, tunnel)
+}
+
+// ReCreateTunWithResult preserves legacy logging and additionally lets an
+// embedding caller fail startup if the actual TUN/stack could not be created.
+func ReCreateTunWithResult(tunConf LC.Tun, tunnel C.Tunnel) (err error) {
 	tunConf.Sort()
 
 	tunMux.Lock()
@@ -504,7 +510,6 @@ func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
 		tunMux.Unlock()
 	}()
 
-	var err error
 	defer func() {
 		if err != nil {
 			log.Errorln("Start TUN listening error: %s", err.Error())
@@ -516,22 +521,23 @@ func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
 		if tunLister != nil { // some default value in dialer maybe changed when config reload, reset at here
 			tunLister.OnReload()
 		}
-		return
+		return err
 	}
 
 	closeTunListener()
 
 	if !tunConf.Enable {
-		return
+		return err
 	}
 
 	lister, err := sing_tun.New(tunConf, tunnel)
 	if err != nil {
-		return
+		return err
 	}
 	tunLister = lister
 
 	log.Infoln("[TUN] Tun adapter listening at: %s", tunLister.Address())
+	return nil
 }
 
 func PatchTunnel(tunnels []LC.Tunnel, tunnel C.Tunnel) {
@@ -725,5 +731,26 @@ func closeTunListener() {
 }
 
 func Cleanup() {
+	// YueLink: tear down ALL listeners on shutdown so embedded c-archive
+	// callers can rebind ports on the next StartCore. Upstream mihomo only
+	// closes the TUN listener here because its main() is about to os.Exit;
+	// in-process c-archive callers (Flutter app via CGO) keep the Go runtime
+	// alive across StartCore/StopCore cycles, so leaked mixed/http/socks/dns
+	// listeners block the next StartCore — and in service-mode-on-the-side,
+	// they hand stale routing to any client that still connects to the old
+	// port. Calling each ReCreate with a zero/empty config is the
+	// upstream-supported way to close that listener type without recreating.
+	ReCreateHTTP(0, nil)
+	ReCreateSocks(0, nil)
+	ReCreateRedir(0, nil)
+	ReCreateTProxy(0, nil)
+	ReCreateMixed(0, nil)
+	ReCreateShadowSocks("", nil)
+	ReCreateVmess("", nil)
+	ReCreateTuic(LC.TuicServer{}, nil)
+	PatchTunnel(nil, nil)
+	PatchInboundListeners(nil, nil, true)
 	closeTunListener()
+	LastTunConf = LC.Tun{}
+	LastTuicConf = LC.TuicServer{}
 }

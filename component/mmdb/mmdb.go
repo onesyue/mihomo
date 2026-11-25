@@ -29,7 +29,8 @@ func LoadFromBytes(buffer []byte) {
 	ipOnce.Do(func() {
 		mmdb, err := maxminddb.FromBytes(buffer)
 		if err != nil {
-			log.Fatalln("Can't load mmdb: %s", err.Error())
+			log.Errorln("Can't load mmdb: %s", err.Error())
+			return
 		}
 		ipReader = IPReader{Reader: mmdb}
 		switch mmdb.Metadata.DatabaseType {
@@ -57,7 +58,8 @@ func IPInstance() IPReader {
 		log.Infoln("Load MMDB file: %s", mmdbPath)
 		mmdb, err := maxminddb.Open(mmdbPath)
 		if err != nil {
-			log.Fatalln("Can't load MMDB: %s", err.Error())
+			log.Errorln("Can't load MMDB: %s", err.Error())
+			return
 		}
 		ipReader = IPReader{Reader: mmdb}
 		switch mmdb.Metadata.DatabaseType {
@@ -79,7 +81,8 @@ func ASNInstance() ASNReader {
 		log.Infoln("Load ASN file: %s", ASNPath)
 		asn, err := maxminddb.Open(ASNPath)
 		if err != nil {
-			log.Fatalln("Can't load ASN: %s", err.Error())
+			log.Errorln("Can't load ASN: %s", err.Error())
+			return
 		}
 		asnReader = ASNReader{Reader: asn}
 	})

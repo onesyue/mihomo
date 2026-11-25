@@ -67,8 +67,16 @@ var loadGeoSiteMatcherListSF = singleflight.Group[[]*router.Domain]{StoreResult:
 var loadGeoSiteMatcherSF = singleflight.Group[router.DomainMatcher]{StoreResult: true}
 
 func LoadGeoSiteMatcher(countryCode string) (router.DomainMatcher, error) {
+	return LoadDNSGeoSiteMatcher(countryCode, false, "")
+}
+
+// LoadDNSGeoSiteMatcher permits the app's signed first-use seed only for selected DNS predicates.
+func LoadDNSGeoSiteMatcher(countryCode string, seed bool, file string) (router.DomainMatcher, error) {
 	if countryCode == "" {
 		return nil, fmt.Errorf("country code could not be empty")
+	}
+	if file != "" && !strings.EqualFold(file, "GeoSite.dat") {
+		return nil, fmt.Errorf("invalid DNS GeoSite basename")
 	}
 
 	not := false
@@ -90,22 +98,41 @@ func LoadGeoSiteMatcher(countryCode string) (router.DomainMatcher, error) {
 		return nil, fmt.Errorf("empty listname in rule: %s", countryCode)
 	}
 
-	matcherName := listName
+	listKey := listName
+	if seed {
+		listKey = "dns-seed\x00" + listName
+	} else if file != "" {
+		listKey = "dns-live\x00" + file + "\x00" + listName
+	}
+	matcherName := listKey
 	if !attrs.IsEmpty() {
 		matcherName += "@" + attrs.String()
 	}
 	matcher, err, shared := loadGeoSiteMatcherSF.Do(matcherName, func() (router.DomainMatcher, error) {
-		log.Infoln("Load GeoSite rule: %s", matcherName)
-		domains, err, shared := loadGeoSiteMatcherListSF.Do(listName, func() ([]*router.Domain, error) {
+		log.Infoln("Load GeoSite rule: %s", countryCode)
+		domains, err, shared := loadGeoSiteMatcherListSF.Do(listKey, func() ([]*router.Domain, error) {
 			geoLoader, err := GetGeoDataLoader(geoLoaderName)
 			if err != nil {
 				return nil, err
+			}
+			if seed {
+				actual, err := FindDNSGeoFile("GeoSite.dat")
+				if err != nil {
+					return nil, err
+				}
+				if actual == "" {
+					return readSeedSite(listName)
+				}
+				return geoLoader.LoadSiteByPath(actual, listName)
+			}
+			if file != "" {
+				return geoLoader.LoadSiteByPath(file, listName)
 			}
 			return geoLoader.LoadGeoSite(listName)
 		})
 		if err != nil {
 			if !shared {
-				loadGeoSiteMatcherListSF.Forget(listName) // don't store the error result
+				loadGeoSiteMatcherListSF.Forget(listKey) // don't store the error result
 			}
 			return nil, err
 		}
@@ -156,8 +183,16 @@ func LoadGeoSiteMatcher(countryCode string) (router.DomainMatcher, error) {
 var loadGeoIPMatcherSF = singleflight.Group[router.IPMatcher]{StoreResult: true}
 
 func LoadGeoIPMatcher(country string) (router.IPMatcher, error) {
+	return LoadDNSGeoIPMatcher(country, false, "")
+}
+
+// LoadDNSGeoIPMatcher uses the normal country matcher and keeps seed entries out of other rules' caches.
+func LoadDNSGeoIPMatcher(country string, seed bool, file string) (router.IPMatcher, error) {
 	if len(country) == 0 {
 		return nil, fmt.Errorf("country code could not be empty")
+	}
+	if file != "" && !strings.EqualFold(file, "GeoIP.dat") {
+		return nil, fmt.Errorf("invalid DNS GeoIP basename")
 	}
 
 	not := false
@@ -167,13 +202,34 @@ func LoadGeoIPMatcher(country string) (router.IPMatcher, error) {
 	}
 	country = strings.ToLower(country)
 
-	matcher, err, shared := loadGeoIPMatcherSF.Do(country, func() (router.IPMatcher, error) {
+	key := country
+	if seed {
+		key = "dns-seed\x00" + key
+	} else if file != "" {
+		key = "dns-live\x00" + file + "\x00" + key
+	}
+	matcher, err, shared := loadGeoIPMatcherSF.Do(key, func() (router.IPMatcher, error) {
 		log.Infoln("Load GeoIP rule: %s", country)
 		geoLoader, err := GetGeoDataLoader(geoLoaderName)
 		if err != nil {
 			return nil, err
 		}
-		cidrList, err := geoLoader.LoadGeoIP(country)
+		var cidrList []*router.CIDR
+		if seed {
+			actual, lookupErr := FindDNSGeoFile("GeoIP.dat")
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+			if actual == "" {
+				cidrList, err = readSeedIP(country)
+			} else {
+				cidrList, err = geoLoader.LoadIPByPath(actual, country)
+			}
+		} else if file != "" {
+			cidrList, err = geoLoader.LoadIPByPath(file, country)
+		} else {
+			cidrList, err = geoLoader.LoadGeoIP(country)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -181,7 +237,7 @@ func LoadGeoIPMatcher(country string) (router.IPMatcher, error) {
 	})
 	if err != nil {
 		if !shared {
-			loadGeoIPMatcherSF.Forget(country) // don't store the error result
+			loadGeoIPMatcherSF.Forget(key) // don't store the error result
 			log.Warnln("Load GeoIP rule: %s", country)
 		}
 		return nil, err

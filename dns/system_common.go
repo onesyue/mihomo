@@ -18,7 +18,11 @@ func (c *systemClient) getDnsClients() ([]dnsClient, error) {
 	var err error
 	if time.Since(c.lastFlush) > SystemDnsFlushTime {
 		var nameservers []string
-		if nameservers, err = dnsReadConfig(); err == nil {
+		readConfig := c.readConfig
+		if readConfig == nil {
+			readConfig = dnsReadConfig
+		}
+		if nameservers, err = readConfig(); err == nil {
 			log.Debugln("[DNS] system dns update to %s", nameservers)
 			for _, addr := range nameservers {
 				if resolver.IsSystemDnsBlacklisted(addr) {
@@ -70,4 +74,14 @@ func (c *systemClient) getDnsClients() ([]dnsClient, error) {
 	return nil, err
 }
 
-func (c *systemClient) ResetConnection() {}
+// ResetConnection invalidates discovery immediately. The next DNS query reads
+// the current OS configuration; old endpoints are not retained on read failure.
+func (c *systemClient) ResetConnection() {
+	c.mu.Lock()
+	c.lastFlush = time.Time{}
+	c.dnsClients = make(map[string]*systemDnsClient)
+	c.mu.Unlock()
+	for _, client := range c.defaultNS {
+		client.ResetConnection()
+	}
+}

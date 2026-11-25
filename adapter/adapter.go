@@ -7,9 +7,12 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"sync"
+	stdatomic "sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/common/atomic"
+	"github.com/metacubex/mihomo/common/probestage"
 	"github.com/metacubex/mihomo/common/queue"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/common/xsync"
@@ -18,6 +21,7 @@ import (
 	"github.com/metacubex/mihomo/log"
 
 	"github.com/metacubex/http"
+	"github.com/metacubex/http/httptrace"
 )
 
 var UnifiedDelay = atomic.NewBool(false)
@@ -36,6 +40,18 @@ type Proxy struct {
 	alive   atomic.Bool
 	history *queue.Queue[C.DelayHistory]
 	extra   xsync.Map[string, *internalProxyState]
+
+	urlTestMu sync.Mutex
+	urlTests  map[urlTestKey]*urlTestFlight
+
+	// urlTestWriteMu serializes DelayHistory/alive commits with generation
+	// checks. Lock order: acquire urlTestWriteMu before flight.mu; never hold
+	// flight.mu while acquiring urlTestMu or urlTestWriteMu; never hold
+	// urlTestWriteMu while acquiring urlTestMu.
+	urlTestWriteMu      sync.Mutex
+	urlTestSeq          uint64
+	urlTestGlobalCommit uint64
+	urlTestCommit       map[string]uint64
 }
 
 // Adapter implements C.Proxy
@@ -161,42 +177,11 @@ func (p *Proxy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(mapping)
 }
 
-// URLTest get the delay for the specified URL
-// implements C.Proxy
-func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16]) (t uint16, err error) {
+func (p *Proxy) doURLTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16], flight *urlTestFlight) (t uint16, err error) {
 	var satisfied bool
 
 	defer func() {
-		alive := err == nil
-		record := C.DelayHistory{Time: time.Now()}
-		if alive {
-			record.Delay = t
-		}
-
-		p.alive.Store(alive)
-		p.history.Put(record)
-		if p.history.Len() > defaultHistoriesNum {
-			p.history.Pop()
-		}
-
-		state, _ := p.extra.LoadOrStoreFn(url, func() *internalProxyState {
-			return &internalProxyState{
-				history: queue.New[C.DelayHistory](defaultHistoriesNum),
-				alive:   atomic.NewBool(true),
-			}
-		})
-
-		if !satisfied {
-			record.Delay = 0
-			alive = false
-		}
-
-		state.alive.Store(alive)
-		state.history.Put(record)
-		if state.history.Len() > defaultHistoriesNum {
-			state.history.Pop()
-		}
-
+		p.commitURLTestResult(flight, url, t, err, satisfied)
 	}()
 
 	unifiedDelay := UnifiedDelay.Load()
@@ -218,6 +203,13 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 	req, err := http.NewRequest(http.MethodHead, url, nil)
 	if err != nil {
 		return
+	}
+	if trace := probestage.FromContext(ctx); trace != nil && p.Type() == C.Hysteria2 && req.URL.Scheme == "https" {
+		// The target returned HTTP data over verified TLS. Opening the HY2
+		// stream or buffering the request alone does not prove delivery.
+		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+			GotFirstResponseByte: trace.ReachedTargetResponse,
+		})
 	}
 	req = req.WithContext(ctx)
 
@@ -249,7 +241,6 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 	defer client.CloseIdleConnections()
 
 	resp, err := client.Do(req)
-
 	if err != nil {
 		return
 	}
@@ -267,8 +258,11 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 			start = second
 		} else {
 			if strings.HasPrefix(url, "http://") {
-				log.Errorln("%s failed to get the second response from %s: %v", p.Name(), url, ignoredErr)
-				log.Warnln("It is recommended to use HTTPS for provider.health-check.url and group.url to ensure better reliability. Due to some proxy providers hijacking test addresses and not being compatible with repeated HEAD requests, using HTTP may result in failed tests.")
+				// The second HEAD is best-effort: its error is ignored and the
+				// first response is used. Logging it at error level made GUIs
+				// show a red "delay test failed" banner for a node that passed.
+				log.Debugln("%s failed to get the second response from %s: %v", p.Name(), url, ignoredErr)
+				log.Debugln("It is recommended to use HTTPS for provider.health-check.url and group.url to ensure better reliability. Due to some proxy providers hijacking test addresses and not being compatible with repeated HEAD requests, using HTTP may result in failed tests.")
 			}
 		}
 	}
@@ -281,6 +275,96 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 		t = 1
 	}
 	return
+}
+
+// Test-only commit hooks. Production leaves these nil. They must not be
+// part of the public API. Stored atomically so tests can install them
+// without racing leftover commits from other tests in the same package.
+//
+// urlTestAfterAbandonedSample is retained for tests that script the old
+// stale-snapshot window (sample, drop flight.mu, then take the write lock).
+// The production path must not call it.
+// urlTestAfterCommitLocked runs once urlTestWriteMu is held and the
+// snapshot that will govern the write has been taken under that lock.
+type urlTestCommitHook func(p *Proxy, flight *urlTestFlight, seq uint64)
+
+var (
+	urlTestAfterAbandonedSample stdatomic.Pointer[urlTestCommitHook]
+	urlTestAfterCommitLocked    stdatomic.Pointer[urlTestCommitHook]
+)
+
+// commitURLTestResult publishes DelayHistory and alive for one finished
+// doURLTest generation. A still-current flight always writes (concurrent
+// distinct-URL probes keep last-writer-wins). An abandoned flight writes
+// only when no newer generation has already committed the relevant state,
+// so a late cancel cannot clobber a newer success, while a cancelled
+// probe with no replacement remains observable. The abandoned/seq
+// snapshot is taken under urlTestWriteMu so the check and write are
+// one critical section.
+func (p *Proxy) commitURLTestResult(flight *urlTestFlight, url string, t uint16, err error, satisfied bool) {
+	alive := err == nil
+	record := C.DelayHistory{Time: time.Now()}
+	if alive {
+		record.Delay = t
+	}
+
+	// Take the write lock before reading abandoned/seq so a concurrent
+	// release plus newer commit cannot publish between the snapshot and
+	// this write. flight.mu is acquired only while urlTestWriteMu is held.
+	p.urlTestWriteMu.Lock()
+	defer p.urlTestWriteMu.Unlock()
+
+	flight.mu.Lock()
+	abandoned := flight.abandoned
+	seq := flight.seq
+	flight.mu.Unlock()
+
+	if fn := urlTestAfterCommitLocked.Load(); fn != nil {
+		(*fn)(p, flight, seq)
+	}
+
+	if p.urlTestCommit == nil {
+		p.urlTestCommit = make(map[string]uint64)
+	}
+
+	writeGlobal := !abandoned || p.urlTestGlobalCommit < seq
+	writeURL := !abandoned || p.urlTestCommit[url] < seq
+	if !writeGlobal && !writeURL {
+		return
+	}
+
+	if writeGlobal {
+		p.alive.Store(alive)
+		p.history.Put(record)
+		if p.history.Len() > defaultHistoriesNum {
+			p.history.Pop()
+		}
+		if seq > p.urlTestGlobalCommit {
+			p.urlTestGlobalCommit = seq
+		}
+	}
+
+	if !satisfied {
+		record.Delay = 0
+		alive = false
+	}
+
+	if writeURL {
+		state, _ := p.extra.LoadOrStoreFn(url, func() *internalProxyState {
+			return &internalProxyState{
+				history: queue.New[C.DelayHistory](defaultHistoriesNum),
+				alive:   atomic.NewBool(true),
+			}
+		})
+		state.alive.Store(alive)
+		state.history.Put(record)
+		if state.history.Len() > defaultHistoriesNum {
+			state.history.Pop()
+		}
+		if seq > p.urlTestCommit[url] {
+			p.urlTestCommit[url] = seq
+		}
+	}
 }
 
 func NewProxy(adapter C.ProxyAdapter) *Proxy {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/metacubex/mihomo/common/dialattempt"
 	"net"
 	"net/netip"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/metacubex/mihomo/common/convert"
 	N "github.com/metacubex/mihomo/common/net"
+	"github.com/metacubex/mihomo/common/probestage"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
@@ -88,6 +90,7 @@ type VlessOption struct {
 	PrivateKey        string            `proxy:"private-key,omitempty"`
 	ServerName        string            `proxy:"servername,omitempty"`
 	ClientFingerprint string            `proxy:"client-fingerprint,omitempty"`
+	YueConnTag        bool              `proxy:"yue-conn-tag,omitempty"`
 }
 
 type XHTTPOptions struct {
@@ -299,6 +302,8 @@ func (v *Vless) streamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 	}
 	if err != nil {
 		conn = nil
+	} else {
+		vless.ObserveProbeResponse(conn, ctx)
 	}
 	return
 }
@@ -331,7 +336,9 @@ func (v *Vless) streamTLSConn(ctx context.Context, conn net.Conn, isH2 bool) (ne
 			tlsOpts.Host = v.option.ServerName
 		}
 
-		return vmess.StreamTLSConn(ctx, conn, &tlsOpts)
+		return observeTLSHandshake(conn, func() (net.Conn, error) {
+			return vmess.StreamTLSConn(ctx, conn, &tlsOpts)
+		})
 	}
 
 	return conn, nil
@@ -348,11 +355,29 @@ func (v *Vless) dialContext(ctx context.Context) (c net.Conn, err error) {
 	return v.dialer.DialContext(ctx, "tcp", v.addr)
 }
 
+// SupportsSafeDialRetry excludes transport wrappers and fast-open paths. The
+// only marked error below is the native TCP connect failing before TLS/Reality
+// or VLESS framing starts; later handshake/first-write failures stay unmarked.
+func (v *Vless) SupportsSafeDialRetry() bool {
+	return (v.option.Network == "" || v.option.Network == "tcp") && !v.option.TFO && !v.option.MPTCP && v.option.DialerProxy == "" && v.option.DialerForAPI == nil
+}
+
 // DialContext implements C.ProxyAdapter
 func (v *Vless) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
+	// Only this eager transport has all four observable boundaries. Lazy,
+	// multiplexed and other protocols deliberately remain unknown.
+	if v.option.Network == "ws" && v.option.TLS && v.option.WSOpts.MaxEarlyData == 0 &&
+		!v.option.WSOpts.V2rayHttpUpgrade && !v.option.WSOpts.V2rayHttpUpgradeFastOpen &&
+		v.option.Flow == "" && v.encryption == nil && v.shadowTLSConfig == nil && v.restlsConfig == nil && v.jlsConfig == nil {
+		probestage.Begin(ctx)
+	}
 	c, err := v.dialContext(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
+		failure := fmt.Errorf("%s connect error: %w", v.addr, err)
+		if v.SupportsSafeDialRetry() {
+			failure = dialattempt.BeforeApplicationData(failure)
+		}
+		return nil, failure
 	}
 	defer func(c net.Conn) {
 		safeConnClose(c, err)
@@ -484,7 +509,7 @@ func NewVless(option VlessOption) (*Vless, error) {
 		option.PacketAddr = false
 	}
 
-	client, err := vless.NewClient(option.UUID, addons)
+	client, err := vless.NewClient(option.UUID, yueVlessAddons(addons, option.YueConnTag))
 	if err != nil {
 		return nil, err
 	}

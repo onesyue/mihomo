@@ -49,7 +49,11 @@ func getPackageManager() (tun.PackageManager, error) {
 func (l *Listener) buildAndroidRules(tunOptions *tun.Options) error {
 	packageManager, err := getPackageManager()
 	if err != nil {
-		return err
+		// Don't abort TUN creation — package-based routing (IncludePackage/
+		// ExcludePackage) won't work, but basic TUN still functions.
+		// App exclusion is handled by VpnService.Builder.addDisallowedApplication().
+		log.Warnln("[TUN] Android PackageManager unavailable: %s (continuing without package rules)", err)
+		return nil
 	}
 	tunOptions.BuildAndroidRules(packageManager, l.handler)
 	return nil

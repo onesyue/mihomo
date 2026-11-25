@@ -216,6 +216,14 @@ func Proxies() map[string]C.Proxy {
 	return proxies
 }
 
+// GetProxy returns a proxy from the current immutable configuration snapshot.
+func GetProxy(name string) (C.Proxy, bool) {
+	configMux.RLock()
+	defer configMux.RUnlock()
+	proxy, ok := proxies[name]
+	return proxy, ok
+}
+
 // Providers return all compatible providers
 func Providers() map[string]P.ProxyProvider {
 	return providers
@@ -229,6 +237,19 @@ func RuleProviders() map[string]P.RuleProvider {
 // UpdateProxies handle update proxies
 func UpdateProxies(newProxies map[string]C.Proxy, newProviders map[string]P.ProxyProvider) {
 	configMux.Lock()
+	// Fence controls on replaced groups. Existing connections retain
+	// their adapters; publication must never close their transport resources.
+	for name, previous := range proxies {
+		if current := newProxies[name]; current != nil && current.Adapter() == previous.Adapter() {
+			continue
+		}
+		if selector, ok := previous.Adapter().(interface{ RetireSelection() }); ok {
+			selector.RetireSelection()
+		}
+		if group, ok := previous.Adapter().(interface{ RetireAdvisory() }); ok {
+			group.RetireAdvisory()
+		}
+	}
 	proxies = newProxies
 	providers = newProviders
 	configMux.Unlock()

@@ -27,6 +27,7 @@ import (
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/component/sniffer"
 	"github.com/metacubex/mihomo/component/trie"
+	"github.com/metacubex/mihomo/component/yueconntag"
 	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
 	snifferTypes "github.com/metacubex/mihomo/constant/sniffer"
@@ -219,6 +220,7 @@ type RawCors struct {
 }
 
 type RawDNS struct {
+	UseBundledGeoSeed            bool                                `yaml:"use-bundled-geo-seed" json:"use-bundled-geo-seed"`
 	Enable                       bool                                `yaml:"enable" json:"enable"`
 	PreferH3                     bool                                `yaml:"prefer-h3" json:"prefer-h3"`
 	IPv6                         bool                                `yaml:"ipv6" json:"ipv6"`
@@ -469,6 +471,10 @@ type RawConfig struct {
 	TLS           RawTLS                    `yaml:"tls" json:"tls"`
 
 	ClashForAndroid RawClashForAndroid `yaml:"clash-for-android" json:"clash-for-android"`
+
+	// YueDeviceTag is injected by the YueLink host, which force-overwrites
+	// any subscription value. See component/yueconntag.
+	YueDeviceTag string `yaml:"yue-device-tag" json:"yue-device-tag"`
 }
 
 // Parse config
@@ -545,7 +551,7 @@ func DefaultRawConfig() *RawConfig {
 		Tun: RawTun{
 			Enable:               false,
 			Device:               "",
-			Stack:                C.TunMips,
+			Stack:                C.TunGvisor,
 			DNSHijack:            []string{"0.0.0.0:53"}, // default hijack all dns query
 			AutoRoute:            true,
 			AutoDetectInterface:  true,
@@ -627,6 +633,9 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 	log.Infoln("Start initial configuration in progress") //Segment finished in xxm
 	startTime := time.Now()
 
+	// YueLink: must run before anything reads rawCfg (see hardened.go).
+	applyHardenedPolicy(rawCfg)
+
 	general, err := parseGeneral(rawCfg)
 	if err != nil {
 		return nil, err
@@ -674,6 +683,9 @@ func ParseRawConfig(rawCfg *RawConfig) (*Config, error) {
 		return nil, err
 	}
 	config.TLS = tlsCfg
+
+	// YueLink: the device tag must be in place before any outbound is built.
+	yueconntag.Set(rawCfg.YueDeviceTag)
 
 	proxies, providers, err := parseProxies(rawCfg)
 	if err != nil {
@@ -1337,7 +1349,7 @@ func parsePureDNSServer(server string) string {
 	}
 }
 
-func parseNameServerPolicy(nsPolicy *orderedmap.OrderedMap[string, any], adapterName string, ruleProviders map[string]P.RuleProvider, respectRules bool, preferH3 bool) ([]dns.Policy, error) {
+func parseNameServerPolicy(nsPolicy *orderedmap.OrderedMap[string, any], adapterName string, ruleProviders map[string]P.RuleProvider, respectRules bool, preferH3 bool, allowSeed bool) ([]dns.Policy, error) {
 	var policy []dns.Policy
 
 	for pair := nsPolicy.Oldest(); pair != nil; pair = pair.Next() {
@@ -1397,7 +1409,7 @@ func parseNameServerPolicy(nsPolicy *orderedmap.OrderedMap[string, any], adapter
 			policy[idx] = dns.Policy{Matcher: matcher, NameServers: nameservers}
 		} else if strings.HasPrefix(domain, "geosite:") {
 			country := domain[8:]
-			matcher, err := RC.NewGEOSITE(country, adapterName)
+			matcher, err := RC.NewDNSGEOSITE(country, adapterName, allowSeed)
 			if err != nil {
 				return nil, err
 			}
@@ -1444,7 +1456,7 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 		return nil, err
 	}
 
-	if dnsCfg.NameServerPolicy, err = parseNameServerPolicy(cfg.NameServerPolicy, "dns.nameserver-policy", ruleProviders, cfg.RespectRules, cfg.PreferH3); err != nil {
+	if dnsCfg.NameServerPolicy, err = parseNameServerPolicy(cfg.NameServerPolicy, "dns.nameserver-policy", ruleProviders, cfg.RespectRules, cfg.PreferH3, cfg.UseBundledGeoSeed); err != nil {
 		return nil, err
 	}
 
@@ -1452,7 +1464,7 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 		return nil, err
 	}
 
-	if dnsCfg.ProxyServerPolicy, err = parseNameServerPolicy(cfg.ProxyServerNameserverPolicy, "dns.proxy-server-nameserver-policy", ruleProviders, false, cfg.PreferH3); err != nil {
+	if dnsCfg.ProxyServerPolicy, err = parseNameServerPolicy(cfg.ProxyServerNameserverPolicy, "dns.proxy-server-nameserver-policy", ruleProviders, false, cfg.PreferH3, false); err != nil {
 		return nil, err
 	}
 	if len(dnsCfg.ProxyServerPolicy) != 0 && len(dnsCfg.ProxyServerNameserver) == 0 {
@@ -1570,7 +1582,7 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 
 	if len(cfg.Fallback) != 0 {
 		if cfg.FallbackFilter.GeoIP {
-			matcher, err := RC.NewGEOIP(cfg.FallbackFilter.GeoIPCode, "dns.fallback-filter.geoip", false, true)
+			matcher, err := RC.NewDNSGEOIP(cfg.FallbackFilter.GeoIPCode, "dns.fallback-filter.geoip", false, true, cfg.UseBundledGeoSeed)
 			if err != nil {
 				return nil, fmt.Errorf("load GeoIP dns fallback filter error, %w", err)
 			}
@@ -1605,7 +1617,7 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 		if len(cfg.FallbackFilter.GeoSite) > 0 {
 			log.Warnln("replace fallback-filter.geosite with nameserver-policy, it will be removed in the future")
 			for idx, geoSite := range cfg.FallbackFilter.GeoSite {
-				matcher, err := RC.NewGEOSITE(geoSite, "dns.fallback-filter.geosite")
+				matcher, err := RC.NewDNSGEOSITE(geoSite, "dns.fallback-filter.geosite", cfg.UseBundledGeoSeed)
 				if err != nil {
 					return nil, fmt.Errorf("DNS FallbackGeosite[%d] format error: %w", idx, err)
 				}

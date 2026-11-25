@@ -20,7 +20,7 @@ type URLTestOption struct {
 
 type URLTest struct {
 	*GroupBase
-	selected       string
+	automaticSelection
 	testUrl        string
 	expectedStatus string
 	tolerance      uint16
@@ -49,17 +49,17 @@ func (u *URLTest) Set(name string) error {
 }
 
 func (u *URLTest) ForceSet(name string) {
-	u.selected = name
+	u.automaticSelection.setSelected(name)
 	u.fastSingle.Reset()
 }
 
 // DialContext implements C.ProxyAdapter
 func (u *URLTest) DialContext(ctx context.Context, metadata *C.Metadata) (c C.Conn, err error) {
 	proxy := u.fast(true)
-	c, err = proxy.DialContext(ctx, metadata)
+	c, err, proxy = u.automaticSelection.dialWithRecovery(ctx, metadata, proxy, func() []C.Proxy { return u.GetProxies(false) }, u.testUrl)
 	if err == nil {
 		c.AppendToChains(u)
-	} else {
+	} else if !errors.Is(err, errRecoveryInterrupted) {
 		u.onDialFailed(proxy.Type(), err, u.healthCheck)
 	}
 
@@ -102,6 +102,8 @@ func (u *URLTest) healthCheck() {
 
 func (u *URLTest) fast(touch bool) C.Proxy {
 	elm, _, shared := u.fastSingle.Do(func() (C.Proxy, error) {
+		u.automaticSelection.mu.Lock()
+		defer u.automaticSelection.mu.Unlock()
 		proxies := u.GetProxies(touch)
 		if u.selected != "" {
 			for _, proxy := range proxies {
@@ -115,9 +117,16 @@ func (u *URLTest) fast(touch bool) C.Proxy {
 			}
 		}
 
+		if u.fastNode == nil || !proxyPresent(proxies, u.fastNode) || !u.fastNode.AliveForTestUrl(u.testUrl) {
+			if advised := u.automaticSelection.advised(proxies, u.testUrl); advised != nil {
+				u.fastNode = advised
+				return advised, nil
+			}
+		}
+
 		fast := proxies[0]
 		minDelay := fast.LastDelayForTestUrl(u.testUrl)
-		fastNotExist := true
+		fastNotExist := u.fastNode == nil || u.fastNode.Name() != fast.Name()
 
 		for _, proxy := range proxies[1:] {
 			if u.fastNode != nil && proxy.Name() == u.fastNode.Name() {
@@ -173,7 +182,7 @@ func (u *URLTest) MarshalJSON() ([]byte, error) {
 		"all":            all,
 		"testUrl":        u.testUrl,
 		"expectedStatus": u.expectedStatus,
-		"fixed":          u.selected,
+		"fixed":          u.automaticSelection.selectedName(),
 		"hidden":         u.Hidden(),
 		"icon":           u.Icon(),
 		"emptyFallback":  u.EmptyFallback().Name(),
@@ -197,6 +206,7 @@ func NewURLTest(option GroupCommonOption, urlTestOption URLTestOption, emptyFall
 		return nil, errors.New("empty fallback proxy not exist")
 	}
 	urlTest := &URLTest{
+		automaticSelection: newAutomaticSelection(option.AdvisoryRetry),
 		GroupBase: NewGroupBase(GroupBaseOption{
 			Name:           option.Name,
 			Type:           C.URLTest,

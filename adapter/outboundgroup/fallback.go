@@ -17,9 +17,9 @@ type FallbackOption struct{}
 
 type Fallback struct {
 	*GroupBase
-	disableUDP     bool
-	testUrl        string
-	selected       string
+	disableUDP bool
+	testUrl    string
+	automaticSelection
 	expectedStatus string
 }
 
@@ -31,10 +31,10 @@ func (f *Fallback) Now() string {
 // DialContext implements C.ProxyAdapter
 func (f *Fallback) DialContext(ctx context.Context, metadata *C.Metadata) (C.Conn, error) {
 	proxy := f.findAliveProxy(true)
-	c, err := proxy.DialContext(ctx, metadata)
+	c, err, proxy := f.automaticSelection.dialWithRecovery(ctx, metadata, proxy, func() []C.Proxy { return f.GetProxies(false) }, f.testUrl)
 	if err == nil {
 		c.AppendToChains(f)
-	} else {
+	} else if !errors.Is(err, errRecoveryInterrupted) {
 		f.onDialFailed(proxy.Type(), err, f.healthCheck)
 	}
 
@@ -89,7 +89,7 @@ func (f *Fallback) MarshalJSON() ([]byte, error) {
 		"all":            all,
 		"testUrl":        f.testUrl,
 		"expectedStatus": f.expectedStatus,
-		"fixed":          f.selected,
+		"fixed":          f.automaticSelection.selectedName(),
 		"hidden":         f.Hidden(),
 		"icon":           f.Icon(),
 		"emptyFallback":  f.EmptyFallback().Name(),
@@ -103,20 +103,38 @@ func (f *Fallback) Unwrap(metadata *C.Metadata, touch bool) C.Proxy {
 }
 
 func (f *Fallback) findAliveProxy(touch bool) C.Proxy {
+	f.automaticSelection.mu.Lock()
+	defer f.automaticSelection.mu.Unlock()
 	proxies := f.GetProxies(touch)
-	for _, proxy := range proxies {
-		if len(f.selected) == 0 {
-			if proxy.AliveForTestUrl(f.testUrl) {
-				return proxy
-			}
-		} else {
+	if f.selected != "" {
+		for _, proxy := range proxies {
 			if proxy.Name() == f.selected {
 				if proxy.AliveForTestUrl(f.testUrl) {
 					return proxy
-				} else {
-					f.selected = ""
 				}
+				break
 			}
+		}
+		f.selected = ""
+	}
+	if f.automaticSelection.active(time.Now()) {
+		incumbent := f.automaticSelection.incumbent
+		if incumbent == nil && proxies[0].AliveForTestUrl(f.testUrl) {
+			f.automaticSelection.incumbent = proxies[0]
+			return proxies[0]
+		}
+		if incumbent != nil && proxyPresent(proxies, incumbent) && incumbent.AliveForTestUrl(f.testUrl) {
+			return incumbent
+		}
+		if advised := f.automaticSelection.advised(proxies, f.testUrl); advised != nil {
+			f.automaticSelection.incumbent = advised
+			return advised
+		}
+	}
+	for _, proxy := range proxies {
+		if proxy.AliveForTestUrl(f.testUrl) {
+			f.automaticSelection.incumbent = proxy
+			return proxy
 		}
 	}
 
@@ -136,7 +154,7 @@ func (f *Fallback) Set(name string) error {
 		return errors.New("proxy not exist")
 	}
 
-	f.selected = name
+	f.automaticSelection.setSelected(name)
 	if !p.AliveForTestUrl(f.testUrl) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(5000))
 		defer cancel()
@@ -148,7 +166,7 @@ func (f *Fallback) Set(name string) error {
 }
 
 func (f *Fallback) ForceSet(name string) {
-	f.selected = name
+	f.automaticSelection.setSelected(name)
 }
 
 func (f *Fallback) Providers() []P.ProxyProvider {
@@ -161,6 +179,7 @@ func (f *Fallback) Proxies() []C.Proxy {
 
 func NewFallback(option GroupCommonOption, fallbackOption FallbackOption, emptyFallback C.Proxy, providers []P.ProxyProvider) (*Fallback, error) {
 	return &Fallback{
+		automaticSelection: newAutomaticSelection(option.AdvisoryRetry),
 		GroupBase: NewGroupBase(GroupBaseOption{
 			Name:           option.Name,
 			Type:           C.Fallback,

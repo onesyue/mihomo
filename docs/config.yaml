@@ -133,7 +133,7 @@ profile: # 存储 select 选择记录
 # Tun 配置
 tun:
   enable: false
-  stack: mips # gvisor/mixed/system
+  stack: system # gvisor/mixed/mips
   # 系统 DNS 配置方式
   # - disabled，不设置系统 DNS
   # - native，将 tun 地址设为系统 DNS
@@ -1190,22 +1190,6 @@ proxies: # socks5
     #   v2ray-http-upgrade: false
     #   v2ray-http-upgrade-fast-open: false
 
-  - name: "trojan-xtls"
-    type: trojan
-    server: server
-    port: 443
-    password: yourpsk
-    flow: "xtls-rprx-direct" # xtls-rprx-origin xtls-rprx-direct
-    flow-show: true
-    # udp: true
-    # sni: example.com # aka server name
-    # skip-cert-verify: true
-    # name-cert-verify: example.com # 仅修改证书 DNSName 校验目标，不修改 SNI
-    # fingerprint: xxxx # 配置指纹将实现 SSL Pining 效果, 可使用 openssl x509 -noout -fingerprint -sha256 -inform pem -in yourcert.pem 获取
-    # 下面两项如果填写则开启 mTLS（需要同时填写）
-    # certificate: ./client.crt # 证书 PEM 格式，或者 证书的路径
-    # private-key: ./client.key # 证书对应的私钥 PEM 格式，或者私钥路径
-
   #hysteria
   - name: "hysteria"
     type: hysteria
@@ -1302,7 +1286,7 @@ proxies: # socks5
     # reserved: [209,98,59]
     # persistent-keepalive: 0
     # ip-stack:
-    #   mode: auto # options: auto, mips, gvisor; auto uses mihomo IP stack (MIPS), gvisor needs compiled with -tags with_gvisor
+    #   mode: auto # options: auto, gvisor, mips; auto uses gVisor when compiled in and mihomo IP stack (MIPS) otherwise
     #   congestion-controller: cubic # TCP congestion controller: cubic, reno, bbr, or bbr3; ignored by gVisor
     # 一个出站代理的标识。当值不为空时，将使用指定的 proxy 发出连接
     # dialer-proxy: "ss1"
@@ -1381,7 +1365,7 @@ proxies: # socks5
     # mtu: 1400 # optional local MTU override; cannot exceed the controller MTU
     # physical-mtu: 1432 # optional ZeroTier UDP payload MTU (510-10324; default 1432)
     # ip-stack:
-    #   mode: auto # options: auto, mips, gvisor; auto uses mihomo IP stack (MIPS), gvisor needs compiled with -tags with_gvisor
+    #   mode: auto # options: auto, gvisor, mips; auto uses gVisor when compiled in and mihomo IP stack (MIPS) otherwise
     #   congestion-controller: cubic # TCP congestion controller: cubic, reno, bbr, or bbr3; ignored by gVisor
     # primary-port: 0 # primary UDP port; 0 selects an available port
     # secondary-port: 0 # second UDP port; 0 selects an available port, -1 disables it
@@ -1502,7 +1486,7 @@ proxies: # socks5
     # mtu: 1500
     udp: true
     # ip-stack:
-    #   mode: auto # options: auto, mips, gvisor; auto uses mihomo IP stack (MIPS), gvisor needs compiled with -tags with_gvisor
+    #   mode: auto # options: auto, gvisor, mips; auto uses gVisor when compiled in and mihomo IP stack (MIPS) otherwise
     #   congestion-controller: cubic # TCP congestion controller: cubic, reno, bbr, or bbr3; ignored by gVisor
     # 一个出站代理的标识。当值不为空时，将使用指定的 proxy 发出连接
     # dialer-proxy: "ss1"
@@ -1521,7 +1505,7 @@ proxies: # socks5
     mtu: 1280
     udp: true
     # ip-stack:
-    #   mode: auto # options: auto, mips, gvisor; auto uses mihomo IP stack (MIPS), gvisor needs compiled with -tags with_gvisor
+    #   mode: auto # options: auto, gvisor, mips; auto uses gVisor when compiled in and mihomo IP stack (MIPS) otherwise
     #   congestion-controller: cubic # TCP congestion controller: cubic, reno, bbr, or bbr3; ignored by gVisor
     # 一个出站代理的标识。当值不为空时，将使用指定的 proxy 发出连接
     # dialer-proxy: "ss1"
@@ -1559,7 +1543,7 @@ proxies: # socks5
     udp: true
     network: h2
     # ip-stack:
-    #   mode: auto # options: auto, mips, gvisor; auto uses mihomo IP stack (MIPS), gvisor needs compiled with -tags with_gvisor
+    #   mode: auto # options: auto, gvisor, mips; auto uses gVisor when compiled in and mihomo IP stack (MIPS) otherwise
     #   congestion-controller: cubic # TCP congestion controller: cubic, reno, bbr, or bbr3; ignored by gVisor
     # 一个出站代理的标识。当值不为空时，将使用指定的 proxy 发出连接
     # dialer-proxy: "ss1"
@@ -2814,7 +2798,7 @@ listeners:
     type: tun
     # rule: sub-rule-name1 # 默认使用 rules，如果未找到 sub-rule 则直接使用 rules
     # proxy: proxy # 如果不为空则直接将该入站流量交由指定 proxy 处理 (当 proxy 不为空时，这里的 proxy 名称必须合法，否则会出错)
-    stack: mips # gvisor / mixed / system
+    stack: system # gvisor / mixed / mips
     # dns-mode: hijack # disabled / native / hijack，为空时采用旧行为
     dns-hijack:
     - 0.0.0.0:53 # 需要劫持的 DNS

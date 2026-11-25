@@ -82,6 +82,16 @@ func ParseWithBytes(buf []byte) (*config.Config, error) {
 
 // ApplyConfig dispatch configure to all parts without ExternalController
 func ApplyConfig(cfg *config.Config, force bool) {
+	_ = applyConfig(cfg, force, false)
+}
+
+// ApplyConfigWithResult retains configuration order while reporting real TUN
+// creation errors to embedders. They must clean up any partially applied state.
+func ApplyConfigWithResult(cfg *config.Config, force bool) error {
+	return applyConfig(cfg, force, true)
+}
+
+func applyConfig(cfg *config.Config, force, requireTun bool) error {
 	mux.Lock()
 	defer mux.Unlock()
 	log.SetLevel(cfg.General.LogLevel)
@@ -105,7 +115,9 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	updateDNS(cfg.DNS, cfg.General.IPv6)
 	updateNTP(cfg.NTP) // initialize NTP after DNS because an NTP server may be a hostname.
 	updateListeners(cfg.General, cfg.Listeners, force)
-	updateTun(cfg.General) // tun should not care "force"
+	if err := updateTun(cfg.General); err != nil && requireTun {
+		return err
+	} // tun should not care "force"
 	updateIPTables(cfg)
 	updateTunnels(cfg.Tunnels)
 
@@ -115,11 +127,18 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	loadProvider(cfg.Providers)
 	updateProfile(cfg)
 	loadProvider(cfg.RuleProviders)
-	runtime.GC()
+	// A synchronous collection here held StartCore until the sweep of the
+	// config parse finished, so every connect waited on the GC. The iOS
+	// packet-tunnel extension stays near its jetsam line and still collects
+	// before returning. Other platforms leave that sweep to the normal GC.
+	if runtime.GOOS == "ios" {
+		runtime.GC()
+	}
 	tunnel.OnRunning()
 	updateUpdater(cfg)
 
 	resolver.ResetConnection()
+	return nil
 }
 
 func initInnerTcp() {
@@ -183,6 +202,40 @@ func GetGeneral() *config.General {
 	return general
 }
 
+// RunningDNS is the DNS enhancer currently installed, not the last file
+// that was parsed. A nil mapper means DNS is disabled.
+type RunningDNS struct {
+	Enable       bool   `json:"enable"`
+	EnhancedMode string `json:"enhanced-mode"`
+	IPv6         bool   `json:"ipv6"`
+}
+
+// RunningDNSStatus reads the live enhancer. The IPv6 bit is effective:
+// dns.ipv6 AND the top-level ipv6 flag from the apply that installed it.
+func RunningDNSStatus() RunningDNS {
+	mapper := resolver.DefaultHostMapper
+	enhancer, ok := mapper.(*dns.ResolverEnhancer)
+	if !ok || enhancer == nil {
+		return RunningDNS{EnhancedMode: C.DNSNormal.String()}
+	}
+	return RunningDNS{
+		Enable:       true,
+		EnhancedMode: enhancer.Mode().String(),
+		IPv6:         enhancer.IPv6(),
+	}
+}
+
+// ConfigView is the GET /configs body: general fields plus the running DNS.
+type ConfigView struct {
+	*config.General
+	DNS RunningDNS `json:"dns"`
+}
+
+// CurrentConfigView snapshots general and DNS for the external controller.
+func CurrentConfigView() ConfigView {
+	return ConfigView{General: GetGeneral(), DNS: RunningDNSStatus()}
+}
+
 func updateListeners(general *config.General, listeners map[string]C.InboundListener, force bool) {
 	listener.PatchInboundListeners(listeners, tunnel.Tunnel, true)
 	if !force {
@@ -207,8 +260,8 @@ func updateListeners(general *config.General, listeners map[string]C.InboundList
 	listener.ReCreateTuic(general.TuicServer, tunnel.Tunnel)
 }
 
-func updateTun(general *config.General) {
-	listener.ReCreateTun(general.Tun, tunnel.Tunnel)
+func updateTun(general *config.General) error {
+	return listener.ReCreateTunWithResult(general.Tun, tunnel.Tunnel)
 }
 
 func updateExperimental(c *config.Experimental) {
@@ -237,11 +290,9 @@ func updateNTP(c *config.NTP) {
 
 func updateDNS(c *config.DNS, generalIPv6 bool) {
 	if !c.Enable {
-		resolver.DefaultResolver = nil
+		resolver.PublishDNSResolvers(nil, nil, nil)
 		resolver.DefaultHostMapper = nil
 		resolver.DefaultService = nil
-		resolver.ProxyServerHostResolver = nil
-		resolver.DirectHostResolver = nil
 		dns.ReCreateServer("", nil, nil)
 		return
 	}
@@ -281,22 +332,20 @@ func updateDNS(c *config.DNS, generalIPv6 bool) {
 
 	s := dns.NewService(r, m)
 
-	resolver.DefaultResolver = r
 	resolver.DefaultHostMapper = m
 	resolver.DefaultService = s
 	resolver.UseSystemHosts = c.UseSystemHosts
 
+	proxyResolver := r.Resolver
 	if r.ProxyResolver.Invalid() {
-		resolver.ProxyServerHostResolver = r.ProxyResolver
-	} else {
-		resolver.ProxyServerHostResolver = r.Resolver
+		proxyResolver = r.ProxyResolver
 	}
 
+	directResolver := r.Resolver
 	if r.DirectResolver.Invalid() {
-		resolver.DirectHostResolver = r.DirectResolver
-	} else {
-		resolver.DirectHostResolver = r.Resolver
+		directResolver = r.DirectResolver
 	}
+	resolver.PublishDNSResolvers(r, proxyResolver, directResolver)
 
 	lc := inbound.NewListenConfig()
 	lc.SetRouteMark(c.ListenRoutingMark)
@@ -478,7 +527,6 @@ func updateIPTables(cfg *config.Config) {
 	defer func() {
 		if err != nil {
 			log.Errorln("[IPTABLES] setting iptables failed: %s", err.Error())
-			os.Exit(2)
 		}
 	}()
 
@@ -531,6 +579,11 @@ func updateIPTables(cfg *config.Config) {
 
 func Shutdown() {
 	listener.Cleanup()
+	// YueLink: stop the embedded DNS server alongside the proxy listeners.
+	// Upstream relies on os.Exit to release :53/:1053; c-archive callers
+	// don't get that and the bound socket survives into the next StartCore,
+	// failing with EADDRINUSE on the second cycle.
+	dns.ReCreateServer("", nil, nil)
 	tproxy.CleanupTProxyIPTables()
 	resolver.StoreFakePoolState()
 

@@ -68,7 +68,13 @@ func UpdateMMDB() (err error) {
 	_ = instance.Close()
 
 	defer mmdb.ReloadIP()
-	mmdb.IPInstance().Reader.Close() //  mmdb is loaded with mmap, so it needs to be closed before overwriting the file
+	//  mmdb is loaded with mmap, so it needs to be closed before overwriting the
+	//  file. Fork guard: the reader is nil when the original load failed
+	//  (Errorln+return path) — there is nothing to close, and .Close() on the
+	//  nil embedded reader would panic exactly on the self-heal path.
+	if r := mmdb.IPInstance().Reader; r != nil {
+		_ = r.Close()
+	}
 	if err = vehicle.Write(data); err != nil {
 		return fmt.Errorf("can't save MMDB database file: %w", err)
 	}
@@ -99,7 +105,10 @@ func UpdateASN() (err error) {
 	_ = instance.Close()
 
 	defer mmdb.ReloadASN()
-	mmdb.ASNInstance().Reader.Close() //  mmdb is loaded with mmap, so it needs to be closed before overwriting the file
+	//  Fork guard: see UpdateMMDB above — nil when the original load failed.
+	if r := mmdb.ASNInstance().Reader; r != nil {
+		_ = r.Close()
+	}
 	if err = vehicle.Write(data); err != nil {
 		return fmt.Errorf("can't save ASN database file: %w", err)
 	}
@@ -228,6 +237,11 @@ func getUpdateTime() (time time.Time, err error) {
 		}
 	}
 
+	if errors.Is(err, os.ErrNotExist) {
+		if published, used := geodata.DNSSeedPublished(); used {
+			return published, nil
+		}
+	}
 	return
 }
 
@@ -252,7 +266,11 @@ func RegisterGeoUpdater() {
 			log.Infoln("[GEO] Database has not been updated for %v, update now", time.Duration(updateInterval)*time.Hour)
 			if err := UpdateGeoDatabases(); err != nil {
 				log.Errorln("[GEO] Failed to update GEO database: %s", err.Error())
-				return
+				if _, used := geodata.DNSSeedPublished(); !used {
+					return
+				}
+				// Keep the timer while the exact local DNS seed is serving offline.
+
 			}
 		}
 

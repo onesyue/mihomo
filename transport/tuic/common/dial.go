@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/reachhook"
 
 	"github.com/metacubex/quic-go"
 	"github.com/metacubex/tls"
@@ -42,11 +43,13 @@ func DialQuic(ctx context.Context, address string, opts []dialer.Option, pDialer
 			transport.SetSingleUse(true)   // auto close transport
 
 			var quicConn *quic.Conn
+			start := time.Now()
 			if option.Early {
 				quicConn, err = transport.DialEarly(ctx, udpAddr, tlsConf, conf)
 			} else {
 				quicConn, err = transport.Dial(ctx, udpAddr, tlsConf, conf)
 			}
+			reachhook.Observe(reachhook.PhaseQUIC, addrPort, time.Since(start), err) // YueLink reachprobe; no-op unless enabled
 			if err != nil {
 				_ = packetConn.Close()
 				return nil, err

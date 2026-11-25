@@ -16,6 +16,7 @@ type GEOSITE struct {
 	country    string
 	adapter    string
 	recodeSize int
+	dnsSource  dnsGeoSource
 }
 
 func (gs *GEOSITE) RuleType() C.RuleType {
@@ -47,7 +48,17 @@ func (gs *GEOSITE) Payload() string {
 }
 
 func (gs *GEOSITE) GetDomainMatcher() (router.DomainMatcher, error) {
-	matcher, err := geodata.LoadGeoSiteMatcher(gs.country)
+	source := &gs.dnsSource
+	if live := source.live.Load(); live != nil {
+		return geodata.LoadDNSGeoSiteMatcher(gs.country, false, *live)
+	}
+	if actual := source.probe("GeoSite.dat"); actual != "" {
+		if current, err := geodata.LoadDNSGeoSiteMatcher(gs.country, false, actual); err == nil {
+			source.live.Store(&actual)
+			return current, nil
+		}
+	}
+	matcher, err := geodata.LoadDNSGeoSiteMatcher(gs.country, source.seed, "")
 	if err != nil {
 		return nil, fmt.Errorf("load GeoSite data error, %w", err)
 	}
@@ -62,15 +73,22 @@ func (gs *GEOSITE) GetRecodeSize() int {
 }
 
 func NewGEOSITE(country string, adapter string) (*GEOSITE, error) {
-	if err := geodata.InitGeoSite(); err != nil {
+	return NewDNSGEOSITE(country, adapter, false)
+}
+
+// NewDNSGEOSITE preserves normal geosite behavior unless the first-use DNS seed is eligible.
+func NewDNSGEOSITE(country, adapter string, allowSeed bool) (*GEOSITE, error) {
+	seed := allowSeed && geodata.UseDNSGeoSiteSeed(country)
+	if err := geodata.InitGeoSiteWithDNSSeed(seed); err != nil {
 		log.Errorln("can't initial GeoSite: %s", err)
 		return nil, err
 	}
 
 	geoSite := &GEOSITE{
-		Base:    Base{},
-		country: country,
-		adapter: adapter,
+		Base:      Base{},
+		country:   country,
+		adapter:   adapter,
+		dnsSource: dnsGeoSource{seed: seed},
 	}
 
 	matcher, err := geoSite.GetDomainMatcher() // test load

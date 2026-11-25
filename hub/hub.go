@@ -57,6 +57,13 @@ func ApplyConfig(cfg *config.Config) {
 	executor.ApplyConfig(cfg, true)
 }
 
+// ApplyConfigWithResult exposes the actual TUN startup result for embedders.
+// Existing ApplyConfig intentionally keeps its historical best-effort behavior.
+func ApplyConfigWithResult(cfg *config.Config) error {
+	applyRoute(cfg)
+	return executor.ApplyConfigWithResult(cfg, true)
+}
+
 func applyRoute(cfg *config.Config) {
 	if cfg.Controller.ExternalUI != "" {
 		route.SetUIPath(cfg.Controller.ExternalUI)

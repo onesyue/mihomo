@@ -27,6 +27,7 @@ type systemClient struct {
 	dnsClients map[string]*systemDnsClient
 	lastFlush  time.Time
 	defaultNS  []dnsClient
+	readConfig func() ([]string, error)
 }
 
 func (c *systemClient) ExchangeContext(ctx context.Context, m *D.Msg) (msg *D.Msg, err error) {
@@ -71,4 +72,5 @@ func init() {
 	c.defaultNS = transform([]NameServer{{Addr: "114.114.114.114:53"}, {Addr: "8.8.8.8:53"}}, nil)
 	r.main = []dnsClient{c}
 	resolver.SystemResolver = r
+	resolver.PublishDNSResolvers(nil, nil, nil)
 }

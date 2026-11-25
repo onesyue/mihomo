@@ -18,6 +18,7 @@ import (
 
 	"github.com/metacubex/mihomo/common/buf"
 	N "github.com/metacubex/mihomo/common/net"
+	"github.com/metacubex/mihomo/common/probestage"
 	"github.com/metacubex/mihomo/component/ech"
 	tlsC "github.com/metacubex/mihomo/component/tls"
 	"github.com/metacubex/mihomo/log"
@@ -352,6 +353,7 @@ func streamWebsocketConn(ctx context.Context, conn net.Conn, c *WebsocketConfig,
 	}
 
 	if c.TLS {
+		probestage.Mark(ctx, probestage.TLSHandshake)
 		uri.Scheme = "wss"
 		config := c.TLSConfig
 		if config == nil { // The config cannot be nil
@@ -391,6 +393,7 @@ func streamWebsocketConn(ctx context.Context, conn net.Conn, c *WebsocketConfig,
 		}
 	}
 
+	probestage.Mark(ctx, probestage.WSUpgrade)
 	request := &http.Request{
 		Method: http.MethodGet,
 		URL:    &uri,
