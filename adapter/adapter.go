@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/common/atomic"
+	"github.com/metacubex/mihomo/common/probestage"
 	"github.com/metacubex/mihomo/common/queue"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/common/xsync"
@@ -20,6 +21,7 @@ import (
 	"github.com/metacubex/mihomo/log"
 
 	"github.com/metacubex/http"
+	"github.com/metacubex/http/httptrace"
 )
 
 var UnifiedDelay = atomic.NewBool(false)
@@ -201,6 +203,13 @@ func (p *Proxy) doURLTest(ctx context.Context, url string, expectedStatus utils.
 	req, err := http.NewRequest(http.MethodHead, url, nil)
 	if err != nil {
 		return
+	}
+	if trace := probestage.FromContext(ctx); trace != nil && p.Type() == C.Hysteria2 && req.URL.Scheme == "https" {
+		// The target returned HTTP data over verified TLS. Opening the HY2
+		// stream or buffering the request alone does not prove delivery.
+		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+			GotFirstResponseByte: trace.ReachedTargetResponse,
+		})
 	}
 	req = req.WithContext(ctx)
 

@@ -4,6 +4,7 @@ package probestage
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -56,16 +57,24 @@ func (t *Trace) Mirror(other *Trace) {
 		return
 	}
 	t.mu.Lock()
-	for _, m := range t.mirrors {
-		if m == other {
-			t.mu.Unlock()
-			return
-		}
-	}
+	defer t.mu.Unlock()
+	// One attachment per waiter, even if two calls share a caller context.
 	t.mirrors = append(t.mirrors, other)
-	current := Stage(t.stage.Load())
-	t.mu.Unlock()
-	other.assignAtLeast(current)
+	other.assignAtLeast(Stage(t.stage.Load()))
+}
+
+// StopMirroring takes a final snapshot for this waiter. A callback running
+// after the waiter leaves cannot assign a stage from another waiter's request.
+func (t *Trace) StopMirroring(other *Trace) {
+	if t == nil || other == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if i := slices.Index(t.mirrors, other); i >= 0 {
+		other.assignAtLeast(Stage(t.stage.Load()))
+		t.mirrors = slices.Delete(t.mirrors, i, i+1)
+	}
 }
 
 func (t *Trace) assignAtLeast(s Stage) {
@@ -91,9 +100,8 @@ func (t *Trace) assignAtLeast(s Stage) {
 
 func (t *Trace) propagate(s Stage) {
 	t.mu.Lock()
-	mirrors := append([]*Trace(nil), t.mirrors...)
-	t.mu.Unlock()
-	for _, m := range mirrors {
+	defer t.mu.Unlock()
+	for _, m := range t.mirrors {
 		m.assignAtLeast(s)
 	}
 }
@@ -126,6 +134,13 @@ func Mark(ctx context.Context, s Stage) {
 			return
 		}
 	}
+}
+
+// ReachedTargetResponse starts tracing at the response wait when earlier
+// transport stages were not instrumented. Joined URL tests share this evidence.
+func (t *Trace) ReachedTargetResponse() {
+	t.assignAtLeast(TargetResponse)
+	t.propagate(TargetResponse)
 }
 
 func (t *Trace) FailureStage() string {

@@ -195,6 +195,7 @@ func (f *urlTestFlight) wait(ctx context.Context) (uint16, error) {
 }
 
 func (f *urlTestFlight) release(ctx context.Context) {
+	f.shared.StopMirroring(probestage.FromContext(ctx))
 	f.mu.Lock()
 	f.waiters--
 	f.untrackLocked(ctx)

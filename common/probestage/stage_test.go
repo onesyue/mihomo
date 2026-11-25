@@ -55,3 +55,23 @@ func TestSharedMirrorKeepsSeparateRecorders(t *testing.T) {
 		t.Fatal("shared context must use the fan-out root, not alias the leader pointer")
 	}
 }
+
+func TestStoppedWaiterKeepsItsLastStage(t *testing.T) {
+	ctx, departing := New(context.Background())
+	sharedCtx, shared := StartShared(ctx)
+	_, active := New(context.Background())
+	shared.Mirror(active)
+	shared.Mirror(active) // another waiter explicitly reused the same recorder
+	Begin(sharedCtx)
+	shared.StopMirroring(departing)
+	shared.StopMirroring(active)
+	Mark(sharedCtx, TLSHandshake)
+	if departing.FailureStage() != "tcp_connect" || active.FailureStage() != "tls_handshake" {
+		t.Fatalf("departing=%s active=%s", departing.FailureStage(), active.FailureStage())
+	}
+	shared.StopMirroring(active)
+	Mark(sharedCtx, WSUpgrade)
+	if got := active.FailureStage(); got != "tls_handshake" {
+		t.Fatalf("final waiter acquired a later stage: %s", got)
+	}
+}
