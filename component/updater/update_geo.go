@@ -237,6 +237,11 @@ func getUpdateTime() (time time.Time, err error) {
 		}
 	}
 
+	if errors.Is(err, os.ErrNotExist) {
+		if published, used := geodata.DNSSeedPublished(); used {
+			return published, nil
+		}
+	}
 	return
 }
 
@@ -261,7 +266,11 @@ func RegisterGeoUpdater() {
 			log.Infoln("[GEO] Database has not been updated for %v, update now", time.Duration(updateInterval)*time.Hour)
 			if err := UpdateGeoDatabases(); err != nil {
 				log.Errorln("[GEO] Failed to update GEO database: %s", err.Error())
-				return
+				if _, used := geodata.DNSSeedPublished(); !used {
+					return
+				}
+				// Keep the timer while the exact local DNS seed is serving offline.
+
 			}
 		}
 

@@ -90,10 +90,16 @@ func downloadToPath(url string, path string) (err error) {
 	return err
 }
 
-func InitGeoSite() error {
+func InitGeoSite() error { return InitGeoSiteWithDNSSeed(false) }
+
+func InitGeoSiteWithDNSSeed(seed bool) error {
 	geoSiteEnable.Store(true)
 	initGeoSiteMutex.Lock()
 	defer initGeoSiteMutex.Unlock()
+	if seed && dnsGeoFileMissing("GeoSite.dat") {
+		dnsSeedUsed.Store(true)
+		return nil
+	}
 	if _, err := os.Stat(C.Path.GeoSite()); os.IsNotExist(err) {
 		log.Infoln("Can't find GeoSite.dat, start download")
 		if err := downloadToPath(GeoSiteUrl(), C.Path.GeoSite()); err != nil {
@@ -117,10 +123,16 @@ func InitGeoSite() error {
 	return nil
 }
 
-func InitGeoIP() error {
+func InitGeoIP() error { return InitGeoIPWithDNSSeed(false) }
+
+func InitGeoIPWithDNSSeed(seed bool) error {
 	geoIpEnable.Store(true)
 	initGeoIPMutex.Lock()
 	defer initGeoIPMutex.Unlock()
+	if seed && dnsGeoFileMissing("GeoIP.dat") {
+		dnsSeedUsed.Store(true)
+		return nil
+	}
 	if GeodataMode() {
 		if _, err := os.Stat(C.Path.GeoIP()); os.IsNotExist(err) {
 			log.Infoln("Can't find GeoIP.dat, start download")

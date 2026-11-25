@@ -16,6 +16,7 @@ import (
 )
 
 type GEOIP struct {
+	dnsSource dnsGeoSource
 	Base
 	country     string
 	adapter     string
@@ -179,7 +180,17 @@ func (g *GEOIP) GetIPMatcher() (router.IPMatcher, error) {
 }
 
 func (g *GEOIP) getIPMatcher() (router.IPMatcher, error) {
-	geoIPMatcher, err := geodata.LoadGeoIPMatcher(g.country)
+	source := &g.dnsSource
+	if live := source.live.Load(); live != nil {
+		return geodata.LoadDNSGeoIPMatcher(g.country, false, *live)
+	}
+	if actual := source.probe("GeoIP.dat"); actual != "" {
+		if current, err := geodata.LoadDNSGeoIPMatcher(g.country, false, actual); err == nil {
+			source.live.Store(&actual)
+			return current, nil
+		}
+	}
+	geoIPMatcher, err := geodata.LoadDNSGeoIPMatcher(g.country, source.seed, "")
 	if err != nil {
 		return nil, fmt.Errorf("[GeoIP] %w", err)
 	}
@@ -200,13 +211,20 @@ func (g *GEOIP) GetRecodeSize() int {
 }
 
 func NewGEOIP(country string, adapter string, isSrc, noResolveIP bool) (*GEOIP, error) {
+	return NewDNSGEOIP(country, adapter, isSrc, noResolveIP, false)
+}
+
+// NewDNSGEOIP uses the seed only for the configured DNS fallback country.
+func NewDNSGEOIP(country, adapter string, isSrc, noResolveIP, allowSeed bool) (*GEOIP, error) {
 	country = strings.ToLower(country)
+	seed := allowSeed && geodata.UseDNSGeoIPSeed(country)
 
 	geoip := &GEOIP{
 		Base:        Base{},
 		country:     country,
 		adapter:     adapter,
 		noResolveIP: noResolveIP,
+		dnsSource:   dnsGeoSource{seed: seed},
 		isSourceIP:  isSrc,
 	}
 
@@ -214,7 +232,7 @@ func NewGEOIP(country string, adapter string, isSrc, noResolveIP bool) (*GEOIP, 
 		return geoip, nil
 	}
 
-	if err := geodata.InitGeoIP(); err != nil {
+	if err := geodata.InitGeoIPWithDNSSeed(seed); err != nil {
 		log.Errorln("can't initial GeoIP: %s", err)
 		return nil, err
 	}
