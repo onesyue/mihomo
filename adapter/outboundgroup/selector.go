@@ -2,8 +2,12 @@ package outboundgroup
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"sync"
+
+	"github.com/metacubex/mihomo/common/atomic"
 
 	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
@@ -15,9 +19,12 @@ type SelectorOption struct {
 
 type Selector struct {
 	*GroupBase
-	disableUDP bool
-	selected   string
-	testUrl    string
+	disableUDP        bool
+	selected          atomic.TypedValue[string]
+	selectionMu       sync.Mutex
+	selectionRevision string
+	selectionRetired  bool
+	testUrl           string
 }
 
 // DialContext implements C.ProxyAdapter
@@ -80,19 +87,59 @@ func (s *Selector) Now() string {
 	return s.selectedProxy(false).Name()
 }
 
-func (s *Selector) Set(name string) error {
+// ErrSelectionChanged signals that a conditional control update no longer owns
+// the selected member, or that the configuration replaced this selector.
+var ErrSelectionChanged = errors.New("selector revision changed")
+
+// SelectionRevision is the current version of this instance's control state.
+func (s *Selector) SelectionRevision() string {
+	s.selectionMu.Lock()
+	defer s.selectionMu.Unlock()
+	return s.selectionRevision
+}
+
+// UpdateSelection validates the revision, changes the member, and records the
+// choice before another control operation may enter this selector. Data-plane
+// lookups only load the current selection and never wait for the disk write.
+func (s *Selector) UpdateSelection(name string, matches func(string) bool, persist func()) (string, error) {
+	s.selectionMu.Lock()
+	defer s.selectionMu.Unlock()
+	if s.selectionRetired || (matches != nil && !matches(s.selectionRevision)) {
+		return "", ErrSelectionChanged
+	}
 	for _, proxy := range s.GetProxies(false) {
 		if proxy.Name() == name {
-			s.selected = name
-			return nil
+			s.selected.Store(name)
+			s.selectionRevision = rand.Text()
+			if persist != nil {
+				persist()
+			}
+			return s.selectionRevision, nil
 		}
 	}
+	return "", errors.New("proxy not exist")
+}
 
-	return errors.New("proxy not exist")
+func (s *Selector) Set(name string) error {
+	_, err := s.UpdateSelection(name, nil, nil)
+	return err
 }
 
 func (s *Selector) ForceSet(name string) {
-	s.selected = name
+	s.selectionMu.Lock()
+	defer s.selectionMu.Unlock()
+	if !s.selectionRetired {
+		s.selected.Store(name)
+		s.selectionRevision = rand.Text()
+	}
+}
+
+// RetireSelection fences handlers which resolved this adapter before a reload.
+// Existing connections retain their data-plane selection.
+func (s *Selector) RetireSelection() {
+	s.selectionMu.Lock()
+	defer s.selectionMu.Unlock()
+	s.selectionRetired = true
 }
 
 // Unwrap implements C.ProxyAdapter
@@ -102,8 +149,9 @@ func (s *Selector) Unwrap(metadata *C.Metadata, touch bool) C.Proxy {
 
 func (s *Selector) selectedProxy(touch bool) C.Proxy {
 	proxies := s.GetProxies(touch)
+	selected := s.selected.Load()
 	for _, proxy := range proxies {
-		if proxy.Name() == s.selected {
+		if proxy.Name() == selected {
 			return proxy
 		}
 	}
@@ -134,8 +182,9 @@ func NewSelector(option GroupCommonOption, selectorOption SelectorOption, emptyF
 			EmptyFallback:  emptyFallback,
 			Providers:      providers,
 		}),
-		selected:   selectorOption.DefaultSelected,
-		disableUDP: option.DisableUDP,
-		testUrl:    option.URL,
+		selected:          atomic.NewTypedValue(selectorOption.DefaultSelected),
+		selectionRevision: rand.Text(),
+		disableUDP:        option.DisableUDP,
+		testUrl:           option.URL,
 	}, nil
 }

@@ -237,11 +237,14 @@ func RuleProviders() map[string]P.RuleProvider {
 // UpdateProxies handle update proxies
 func UpdateProxies(newProxies map[string]C.Proxy, newProviders map[string]P.ProxyProvider) {
 	configMux.Lock()
-	// Retire only replaced automatic-group leases. Existing connections retain
+	// Fence controls on replaced groups. Existing connections retain
 	// their adapters; publication must never close their transport resources.
 	for name, previous := range proxies {
 		if current := newProxies[name]; current != nil && current.Adapter() == previous.Adapter() {
 			continue
+		}
+		if selector, ok := previous.Adapter().(interface{ RetireSelection() }); ok {
+			selector.RetireSelection()
 		}
 		if group, ok := previous.Adapter().(interface{ RetireAdvisory() }); ok {
 			group.RetireAdvisory()
