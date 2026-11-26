@@ -74,9 +74,13 @@ func (s *Ssh) connect(ctx context.Context, addr string) (client *ssh.Client, err
 		defer done(&err)
 	}
 
-	// A transport write failure is cached by SSH without closing the connection.
-	// Close it so Wait can evict the unusable client and the next dial reconnects.
+	// Force the SSH transport to shut down when the underlying connection write
+	// fails. handshakeTransport caches this error without closing the transport,
+	// which can leave the shared client permanently unusable while Wait remains
+	// blocked. Closing the connection lets the read and mux loops exit so the
+	// cached client can be discarded and replaced.
 	c = closeOnWriteErrorConn{Conn: c}
+
 	clientConn, chans, reqs, err := ssh.NewClientConn(c, addr, s.config)
 	if err != nil {
 		return nil, err

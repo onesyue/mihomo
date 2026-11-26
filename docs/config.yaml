@@ -134,6 +134,12 @@ profile: # 存储 select 选择记录
 tun:
   enable: false
   stack: system # gvisor/mixed/mips
+  # 系统 DNS 配置方式
+  # - disabled，不设置系统 DNS
+  # - native，将 tun 地址设为系统 DNS
+  # - hijack，在 native 基础上额外拦截发往其他网卡的 53 端口流量（Windows 需 strict-route，Linux 需 auto-redirect）
+  # - 置空，和旧行为一致，Windows 和 Linux 在启用 auto-route 默认 hijack，否则 disabled；macOS 默认 disabled
+  # dns-mode: hijack 
   dns-hijack:
     - 0.0.0.0:53 # 需要劫持的 DNS
   # auto-detect-interface: true # 自动识别出口网卡
@@ -144,6 +150,7 @@ tun:
   auto-redirect: false # 自动配置 iptables 以重定向 TCP 连接。仅支持 Linux。带有 auto-redirect 的 auto-route 现在可以在路由器上按预期工作，无需干预。
   # strict-route: true # 将所有连接路由到 tun 来防止泄漏，但你的设备将无法其他设备被访问
   # disable-icmp-forwarding: true # 禁用 ICMP 转发，防止某些情况下的 ICMP 环回问题，ping 将不会显示真实的延迟
+  # congestion-controller: cubic # TCP congestion controller: cubic, reno, bbr, or bbr3; only effective on mips
   route-address-set: # 将指定规则集中的目标 IP CIDR 规则添加到防火墙, 不匹配的流量将绕过路由, 仅支持 Linux，且需要 nftables，`auto-route` 和 `auto-redirect` 已启用。
     - ruleset-1
     - ruleset-2
@@ -407,20 +414,21 @@ proxies: # socks5
     server: server
     port: 44046
     psk: yourpsk
-    # version: 4 # support 1/2/3/4/5
-    # udp: true # support UDP on version 3/4/5
-    # reuse: false # v4/5 only
+    # version: 4 # support 1/2/3/4/5/6
+    # udp: true # support UDP on version 3/4/5/6
+    # reuse: false # v4/5/6 only
+    # mode: default # v6 only, default / unshaped / unsafe-raw, must match the server
     # obfs-opts:
-    #   mode: http # or tls/shadow-tls/restls/jls
+    #   mode: http # or tls/shadow-tls/restls/jls (http/tls are not available on v6)
 
   - name: "snell-shadow-tls"
     type: snell
     server: server
     port: 44046
     psk: yourpsk
-    # version: 4 # support 1/2/3/4/5
-    # udp: true # support UDP on version 3/4/5
-    # reuse: false # v4/5 only
+    # version: 4 # support 1/2/3/4/5/6
+    # udp: true # support UDP on version 3/4/5/6
+    # reuse: false # v4/5/6 only
     # client-fingerprint: chrome
     obfs-opts:
       mode: shadow-tls
@@ -434,7 +442,7 @@ proxies: # socks5
     server: server
     port: 44046
     psk: yourpsk
-    # version: 4 # support 1/2/3/4/5
+    # version: 4 # support 1/2/3/4/5/6
     # client-fingerprint: chrome
     obfs-opts:
       mode: restls
@@ -447,7 +455,7 @@ proxies: # socks5
     server: server
     port: 44046
     psk: yourpsk
-    # version: 4 # support 1/2/3/4/5
+    # version: 4 # support 1/2/3/4/5/6
     # client-fingerprint: chrome
     obfs-opts:
       mode: jls
@@ -1774,6 +1782,15 @@ proxy-groups:
     url: "https://cp.cloudflare.com/generate_204"
     interval: 300
   # strategy: consistent-hashing # 可选 round-robin 和 sticky-sessions
+  # hash-key: in-user # 可选,仅 consistent-hashing 和 sticky-sessions 支持;
+  #                   # round-robin 不做哈希,配置它会报错而不是被忽略。
+  #                   # 只改变「拿什么值去哈希」,不改变策略拿到哈希值之后如何选节点;
+  #                   # 不填时行为与旧版完全一致。
+  #                   # in-user 用 inbound 的认证用户名作 key(与 IN-USER 规则读取的是
+  #                   # 同一个字段),它不随目标地址变化,因此一件跨多个域名的任务不会
+  #                   # 中途换节点、换出口 IP。未认证的请求回退到该策略原本的 key。
+  #                   # 两种策略给出的一致性时长不同(前者永久、后者 10 分钟),
+  #                   # 取舍见 PR #3133。
 
   # select 用户自行选择节点
   - name: Proxy
@@ -2100,6 +2117,12 @@ listeners:
     # proxy: proxy # 如果不为空则直接将该入站流量交由指定 proxy 处理 (当 proxy 不为空时，这里的 proxy 名称必须合法，否则会出错)
     password: vlmpIPSyHH6f4S8WVPdRIHIlzmB+GIRfoH3aNJ/t9Gg=
     cipher: 2022-blake3-aes-256-gcm
+    # users: # 多用户，匹配到的用户名可用于 IN-USER 规则，仅支持 AEAD 加密及 2022-blake3-aes-* 加密
+    #        # 2022-blake3-aes-*: 上方 password 为服务端 PSK，此处为用户 PSK，客户端密码填写 "服务端PSK:用户PSK"
+    #        # AEAD 加密: 上方 password 需留空，客户端密码直接填写此处的密码
+    #        # 注意: AEAD 加密的数据包中不含用户标识，服务端需对每个包逐个尝试所有用户的密码，UDP 处理开销随用户数线性增长（且无效包会尝试全部用户），用户较多时请使用 2022-blake3-aes-*
+    #   username1: 6NNH4wlU1Sg+r8uILmCzg9qogjbKGDh/RXT7SYwFx1g=
+    #   username2: 9x0ZrXIZTB5+nwF4QzF+Rn4KfJ2kchNm74aOYhZ+8Sg=
     # simple-obfs:
     #   enable: false # 设置为true时开启
     #   mode: http # Available: http, tls
@@ -2163,10 +2186,11 @@ listeners:
     listen: 0.0.0.0
     # routing-mark: 0 # 为监听socket设置routing-mark（仅支持linux）
     psk: your-password
-    version: 4 # 支持 1/2/3/4/5
+    version: 4 # 支持 1/2/3/4/5/6
     udp: true # UDP over TCP tunnel，默认 true
+    # mode: default # 仅 v6：default / unshaped / unsafe-raw，需与客户端一致；v6 的 psk 长度须为 12 到 255 字节
     # obfs-opts:
-    #   mode: http # 可选：http / tls
+    #   mode: http # 可选：http / tls（v6 不支持，配置时会报错）
     #   host: bing.com
     # shadow-tls:
     #   enable: false # 设置为true时开启
@@ -2559,6 +2583,8 @@ listeners:
     # traffic-pattern: ""
     # 如果开启，且客户端不发送用户提示，代理服务器将拒绝连接
     # user-hint-is-mandatory: false
+    # 在上行和下行同时空闲这个秒数后，关闭底层TCP连接。最小值为60。
+    # tcp-idle-timeout: 1800
 
   - name: sudoku-in-1
     type: sudoku
@@ -2773,6 +2799,7 @@ listeners:
     # rule: sub-rule-name1 # 默认使用 rules，如果未找到 sub-rule 则直接使用 rules
     # proxy: proxy # 如果不为空则直接将该入站流量交由指定 proxy 处理 (当 proxy 不为空时，这里的 proxy 名称必须合法，否则会出错)
     stack: system # gvisor / mixed / mips
+    # dns-mode: hijack # disabled / native / hijack，为空时采用旧行为
     dns-hijack:
     - 0.0.0.0:53 # 需要劫持的 DNS
     # auto-detect-interface: false # 自动识别出口网卡
@@ -2814,6 +2841,7 @@ listeners:
     # exclude-package: # 排除被路由的 Android 应用包名
     # - com.android.captiveportallogin
     # disable-icmp-forwarding: true # 禁用 ICMP 转发，防止某些情况下的 ICMP 环回问题，ping 将不会显示真实的延迟
+    # congestion-controller: cubic # TCP congestion controller: cubic, reno, bbr, or bbr3; only effective on mips
 # 入口配置与 Listener 等价，传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理
 # shadowsocks,vmess 入口配置（传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理）
 # ss-config: ss://2022-blake3-aes-256-gcm:vlmpIPSyHH6f4S8WVPdRIHIlzmB+GIRfoH3aNJ/t9Gg=@:23456

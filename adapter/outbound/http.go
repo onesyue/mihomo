@@ -53,7 +53,8 @@ func (h *Http) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.Me
 		}
 	}
 
-	// Preserve target bytes that arrive together with the CONNECT response.
+	// The proxy may send the target's first bytes right behind its response.
+	// They can end up in br, so the returned conn reads them first.
 	br := bufio.NewReader(c)
 	if err := h.shakeHandContext(ctx, c, br, metadata); err != nil {
 		return nil, err
